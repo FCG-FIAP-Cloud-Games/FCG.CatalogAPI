@@ -1,3 +1,2 @@
-Projeto reservado para testes unitários do domínio e da aplicação.
-O C13 não contém regras de negócio; por isso, não há testes unitários artificiais.
-Os testes do host estão em FCG.Catalog.IntegrationTests.
+Testes de domínio (Jogo e Categoria) e dos quatro casos de uso de jogos, migrados e ampliados no C14.
+Os test doubles de IRepositorioJogos existem somente nos projetos de teste.
