@@ -1,0 +1,32 @@
+using FCG.Catalog.Api.Authentication;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+builder.Services.AddProblemDetails();
+builder.Services.AddHealthChecks();
+builder.Services.AddCatalogAuthentication(builder.Configuration);
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+
+app.UseExceptionHandler();
+app.UseStatusCodePages();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
+app.MapHealthChecks("/health").AllowAnonymous();
+
+app.Run();
+
+// Permite hospedar a API nos testes de integração.
+public partial class Program;

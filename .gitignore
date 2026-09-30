@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+.vs/
+.idea/
+TestResults/
+*.user
+*.suo
+*.log
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+appsettings.Local.json
