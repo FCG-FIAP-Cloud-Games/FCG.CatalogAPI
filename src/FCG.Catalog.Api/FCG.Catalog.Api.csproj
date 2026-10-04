@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
     <ProjectReference Include="../FCG.Catalog.Application/FCG.Catalog.Application.csproj" />
     <ProjectReference Include="../FCG.Catalog.Infrastructure/FCG.Catalog.Infrastructure.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />

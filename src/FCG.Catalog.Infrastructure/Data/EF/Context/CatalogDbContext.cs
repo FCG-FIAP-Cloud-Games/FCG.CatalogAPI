@@ -1,0 +1,19 @@
+using FCG.Catalog.Domain.Catalog.Entities;
+using FCG.Catalog.Infrastructure.Data.EF.Mappings;
+using Microsoft.EntityFrameworkCore;
+
+namespace FCG.Catalog.Infrastructure.Data.EF.Context;
+
+public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options) : DbContext(options)
+{
+    public DbSet<Jogo> Jogos => Set<Jogo>();
+    public DbSet<Categoria> Categorias => Set<Categoria>();
+    public DbSet<CategoriaJogo> CategoriasJogos => Set<CategoriaJogo>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.ApplyConfiguration(new MapeamentoJogo());
+        modelBuilder.ApplyConfiguration(new MapeamentoCategoria());
+        modelBuilder.ApplyConfiguration(new MapeamentoCategoriaJogo());
+    }
+}

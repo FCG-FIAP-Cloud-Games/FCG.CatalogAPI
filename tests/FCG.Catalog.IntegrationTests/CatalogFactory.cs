@@ -16,6 +16,7 @@ public sealed class CatalogFactory : WebApplicationFactory<Program>
     private readonly RSA primary = RSA.Create(2048);
     private readonly RSA secondary = RSA.Create(2048);
     private readonly RSA untrusted = RSA.Create(2048);
+    public string PublicKey => primary.ExportSubjectPublicKeyInfoPem();
     public RepositorioJogosFake Repository { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -87,7 +88,7 @@ public sealed class CatalogFactory : WebApplicationFactory<Program>
     }
 }
 
-// Exclusivo dos testes; nenhuma implementação de persistência acompanha a API.
+// Fake exclusivo dos testes de contrato do C14.
 public sealed class RepositorioJogosFake : IRepositorioJogos
 {
     public List<Jogo> Jogos { get; } = [];
