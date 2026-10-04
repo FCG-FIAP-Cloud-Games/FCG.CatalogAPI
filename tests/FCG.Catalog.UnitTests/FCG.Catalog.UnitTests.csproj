@@ -10,4 +10,5 @@
     <ProjectReference Include="../../src/FCG.Catalog.Application/FCG.Catalog.Application.csproj" />
     <ProjectReference Include="../../src/FCG.Catalog.Domain/FCG.Catalog.Domain.csproj" />
   </ItemGroup>
+  <ItemGroup><Compile Include="../Shared/PedidoFakes.cs" Link="PedidoFakes.cs" /></ItemGroup>
 </Project>

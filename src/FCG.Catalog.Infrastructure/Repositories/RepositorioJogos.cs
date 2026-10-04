@@ -17,7 +17,7 @@ internal sealed class RepositorioJogos : IRepositorioJogos
     public Task<Jogo?> ObterPorIdAsync(
         Guid id,
         CancellationToken cancellationToken = default) =>
-        _contexto.Jogos.FirstOrDefaultAsync(jogo => jogo.Id == id, cancellationToken);
+        _contexto.Jogos.AsNoTracking().FirstOrDefaultAsync(jogo => jogo.Id == id, cancellationToken);
 
     public async Task<IReadOnlyList<Jogo>> ListarAsync(
         int pagina,

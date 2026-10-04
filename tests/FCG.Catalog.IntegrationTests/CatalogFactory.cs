@@ -36,7 +36,7 @@ public sealed class CatalogFactory : WebApplicationFactory<Program>
         });
     }
 
-    public string Token(string scenario = "valid", string? role = "Administrador")
+    public string Token(string scenario = "valid", string? role = "Administrador", Guid? userId = null)
     {
         var now = DateTime.UtcNow;
         var rsa = scenario == "second-key" ? secondary : scenario == "bad-signature" ? untrusted : primary;
@@ -61,7 +61,7 @@ public sealed class CatalogFactory : WebApplicationFactory<Program>
             "whitespace-sub" => "   ",
             "invalid-sub" => "not-a-guid",
             "zero-sub" => Guid.Empty.ToString(),
-            _ => Guid.NewGuid().ToString()
+            _ => (userId ?? Guid.NewGuid()).ToString()
         };
         var claims = new List<Claim>();
         if (scenario != "missing-sub") claims.Add(new Claim("sub", subject));
