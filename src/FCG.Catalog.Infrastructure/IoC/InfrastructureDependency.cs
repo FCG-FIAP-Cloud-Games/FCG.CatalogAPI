@@ -1,3 +1,6 @@
+using FCG.Catalog.Application.Orders;
+using FCG.Catalog.Infrastructure.Repositories;
+using FCG.Catalog.Infrastructure.Data.EF;
 using FCG.Catalog.Application.Abstractions.Repositories;
 using FCG.Catalog.Infrastructure.Data.EF.Context;
 using FCG.Catalog.Infrastructure.Repositories.Catalog;
@@ -21,6 +24,8 @@ public static class InfrastructureDependency
             options.UseNpgsql(connection);
         });
         services.AddScoped<IRepositorioJogos, RepositorioJogos>();
+        services.AddScoped<IRepositorioPedidos, RepositorioPedidos>();
+        services.AddScoped<ILockUsuarioJogo, LockUsuarioJogo>();
         return services;
     }
 }

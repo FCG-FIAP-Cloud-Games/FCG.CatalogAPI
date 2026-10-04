@@ -10,4 +10,5 @@
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <ProjectReference Include="../../src/FCG.Catalog.Api/FCG.Catalog.Api.csproj" />
   </ItemGroup>
+  <ItemGroup><Compile Include="../Shared/PedidoFakes.cs" Link="PedidoFakes.cs" /></ItemGroup>
 </Project>

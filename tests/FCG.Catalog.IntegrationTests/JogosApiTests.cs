@@ -125,13 +125,15 @@ public sealed class JogosApiTests
     }
 
     [Fact]
-    public async Task Swagger_lists_only_four_game_operations()
+    public async Task Swagger_lists_game_and_order_operations()
     {
         using var factory = new CatalogFactory();
         using var client = factory.CreateClient();
         var document = await client.GetFromJsonAsync<JsonElement>("/swagger/v1/swagger.json");
         var paths = document.GetProperty("paths");
-        Assert.Equal(2, paths.EnumerateObject().Count());
+        Assert.Equal(4, paths.EnumerateObject().Count());
+        Assert.Equal(new[] { "post" }, paths.GetProperty("/api/v1/pedidos").EnumerateObject().Select(p => p.Name));
+        Assert.Equal(new[] { "get" }, paths.GetProperty("/api/v1/pedidos/{id}").EnumerateObject().Select(p => p.Name));
         Assert.Equal(new[] { "get", "post" }, paths.GetProperty("/api/v1/jogos").EnumerateObject().Select(p => p.Name).Order().ToArray());
         Assert.Equal(new[] { "get", "put" }, paths.GetProperty("/api/v1/jogos/{id}").EnumerateObject().Select(p => p.Name).Order().ToArray());
     }
