@@ -90,7 +90,11 @@ public sealed class HostTests
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment);
-            builder.UseSetting("Jwt:PublicKeyPem", publicKey);
+            if (!string.IsNullOrEmpty(publicKey))
+            {
+                builder.UseSetting("Jwt:PublicKeys:0:Kid", "users-key-1");
+                builder.UseSetting("Jwt:PublicKeys:0:PublicKeyPem", publicKey);
+            }
             builder.UseSetting("Jwt:Issuer", "FIAP.CloudGames");
             builder.UseSetting("Jwt:Audience", "FIAP.CloudGames.Api");
             builder.ConfigureServices(services =>
@@ -101,8 +105,9 @@ public sealed class HostTests
         new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
             issuer: issuer,
             audience: audience,
+            claims: [new System.Security.Claims.Claim("sub", Guid.NewGuid().ToString())],
             expires: DateTime.UtcNow.AddMinutes(5),
-            signingCredentials: new SigningCredentials(new RsaSecurityKey(rsa), SecurityAlgorithms.RsaSha256)));
+            signingCredentials: new SigningCredentials(new RsaSecurityKey(rsa) { KeyId = "users-key-1" }, SecurityAlgorithms.RsaSha256)));
 }
 
 // Controller exclusivo do assembly de testes, não integra a API publicada.

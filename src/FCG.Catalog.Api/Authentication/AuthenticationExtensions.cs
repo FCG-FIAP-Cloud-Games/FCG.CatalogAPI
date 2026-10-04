@@ -10,24 +10,25 @@ public static class AuthenticationExtensions
         this IServiceCollection services, IConfiguration configuration)
     {
         var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new();
-
         if (string.IsNullOrWhiteSpace(jwt.Issuer) || string.IsNullOrWhiteSpace(jwt.Audience)
             || jwt.ClockSkewSeconds < 0)
         {
             throw new InvalidOperationException("Configuração Jwt inválida: informe Issuer, Audience e ClockSkewSeconds não negativo.");
         }
 
-        SecurityKey? publicKey = null;
-        if (!string.IsNullOrWhiteSpace(jwt.PublicKeyPem))
+        var keys = new Dictionary<string, SecurityKey>(StringComparer.Ordinal);
+        foreach (var entry in jwt.PublicKeys)
         {
-            if (jwt.PublicKeyPem.Contains("PRIVATE KEY", StringComparison.Ordinal))
+            if (string.IsNullOrWhiteSpace(entry.Kid) || string.IsNullOrWhiteSpace(entry.PublicKeyPem)
+                || entry.PublicKeyPem.Contains("PRIVATE KEY", StringComparison.Ordinal)
+                || keys.ContainsKey(entry.Kid))
             {
-                throw new InvalidOperationException("Jwt:PublicKeyPem aceita somente chave pública RSA.");
+                throw new InvalidOperationException("Jwt:PublicKeys exige kid único e não vazio e somente chave pública RSA PEM.");
             }
 
             using var rsa = RSA.Create();
-            rsa.ImportFromPem(jwt.PublicKeyPem);
-            publicKey = new RsaSecurityKey(rsa.ExportParameters(includePrivateParameters: false));
+            rsa.ImportFromPem(entry.PublicKeyPem);
+            keys.Add(entry.Kid, new RsaSecurityKey(rsa.ExportParameters(false)) { KeyId = entry.Kid });
         }
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -44,13 +45,31 @@ public static class AuthenticationExtensions
                     RequireExpirationTime = true,
                     RequireSignedTokens = true,
                     ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = publicKey,
+                    TryAllIssuerSigningKeys = false,
+                    IssuerSigningKeyResolver = (_, _, kid, _) =>
+                        !string.IsNullOrWhiteSpace(kid) && keys.TryGetValue(kid, out var key)
+                            ? [key] : Array.Empty<SecurityKey>(),
                     ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
+                    NameClaimType = "sub",
+                    RoleClaimType = "role",
                     ClockSkew = TimeSpan.FromSeconds(jwt.ClockSkewSeconds)
                 };
-                // Sem chave, nenhuma assinatura é aceita. Não há Authority nem consulta externa.
+                options.Events = new JwtBearerEvents
+                {
+                    OnTokenValidated = context =>
+                    {
+                        var subjects = context.Principal?.FindAll("sub").ToArray() ?? [];
+                        // O identificador externo é um Guid; não há consulta ou entidade de usuário.
+                        if (subjects.Length != 1 || !Guid.TryParse(subjects[0].Value, out var subject)
+                            || subject == Guid.Empty)
+                        {
+                            context.Fail("O token deve conter um único sub Guid válido e não vazio.");
+                        }
+                        return Task.CompletedTask;
+                    }
+                };
+                // Apenas configuração local confiável: nenhum Authority, discovery ou fallback.
             });
-
         return services;
     }
 }

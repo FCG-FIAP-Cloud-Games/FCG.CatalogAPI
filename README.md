@@ -1,129 +1,80 @@
 # FCG.CatalogAPI
 
-Fundação técnica do microsserviço CatalogAPI do FIAP Cloud Games, criada no **Card C13**, com .NET 8 e ASP.NET Core Controllers.
+Microsserviço .NET 8 do FIAP Cloud Games. C13 forneceu o host; C14 migra o domínio e as operações de jogos, com autenticação JWT local e autorização administrativa.
 
-## Responsabilidades e estado da extração
+## Escopo do C14
 
-Futuramente o serviço será responsável pelo catálogo de jogos, pedido de compra, biblioteca do usuário e concessão do jogo após pagamento. O processamento financeiro não é responsabilidade deste serviço.
+- Entidades `Jogo`, `Categoria` e `CategoriaJogo`, preservando propriedades, construtores, IDs e invariantes.
+- `IRepositorioJogos`, comandos, consultas, resultados e handlers de criação, consulta por ID, listagem paginada e atualização.
+- Contratos HTTP e `JogosController` preservados, com proteção explícita nas escritas.
+- Nenhuma persistência, EF Core, DbContext, migration, conexão de banco, compra, pedido, biblioteca ou integração com broker.
 
-Neste card nenhum domínio foi extraído do monólito: não há entidades Jogo, Categoria ou CategoriaJogo, casos de uso, pedidos, biblioteca, persistência ou integrações. O host inicia de forma independente, sem monólito, UsersAPI, UsersDB ou qualquer banco/broker.
+## Rotas
 
-Não há EF Core, PostgreSQL, migrations, RabbitMQ, Inbox/Outbox, Docker ou Kubernetes. As pastas vazias são preservadas por `.gitkeep`, sem abstrações artificiais.
+| Método | Rota | Acesso | Respostas de negócio |
+| --- | --- | --- | --- |
+| POST | `/api/v1/jogos` | role `Administrador` | 201 e Location; 400 por dados inválidos |
+| GET | `/api/v1/jogos/{id}` | Público | 200; 400 por GUID vazio; 404 se inexistente |
+| GET | `/api/v1/jogos` | Público | 200; 400 por paginação inválida |
+| PUT | `/api/v1/jogos/{id}` | role `Administrador` | 200; 400 por dados inválidos; 404 se inexistente |
 
-## Estrutura
+POST/PUT retornam 401 sem token ou com token inválido; 403 com token válido sem a role exigida. O nome da role diferencia maiúsculas/minúsculas. IDs de rota usam a restrição `guid`; formato inválido não corresponde à rota (404).
 
-```text
-FCG.CatalogAPI/
-├── src/
-│   ├── FCG.Catalog.Api/
-│   │   ├── Authentication/
-│   │   ├── Controllers/
-│   │   ├── Program.cs
-│   │   ├── appsettings.json
-│   │   └── appsettings.Development.json
-│   ├── FCG.Catalog.Application/
-│   │   ├── Abstractions/Repositories/
-│   │   ├── Rules/
-│   │   └── UseCases/
-│   ├── FCG.Catalog.Domain/
-│   │   ├── Catalog/
-│   │   ├── Orders/
-│   │   └── Library/
-│   └── FCG.Catalog.Infrastructure/
-│       ├── Data/
-│       ├── Repositories/
-│       ├── Messaging/
-│       └── IoC/
-├── tests/
-│   ├── FCG.Catalog.UnitTests/
-│   └── FCG.Catalog.IntegrationTests/
-├── FCG.Catalog.sln
-├── Directory.Build.props
-├── Directory.Packages.props
-├── .gitignore
-└── README.md
-```
+Paginação: `pagina=1`, `tamanhoPagina=20`, máximo 100. Título obrigatório, normalizado com Trim nos handlers, máximo 150 caracteres; preço não negativo. Descrição e faixa etária opcionais são normalizadas. Atualizar preserva ID, data de cadastro e estado ativo. Não existem DELETE nem endpoints de categorias.
 
-Cada diretório de projeto contém seu `.csproj`. Referências de produção:
+## Persistência e DI
 
-- Api → Application e Infrastructure.
-- Application → Domain.
-- Infrastructure → Application e Domain.
-- Domain → nenhuma referência de projeto ou pacote.
+O C15 deverá registrar uma implementação de `IRepositorioJogos`. Não há implementação de produção no C14. As factories scoped de handlers no composition root da API resolvem o repositório somente quando uma operação de catálogo é atendida. Isso mantém a validação padrão de DI habilitada e permite iniciar o host em Development/Production sem banco.
 
-UnitTests referencia Application e Domain; IntegrationTests referencia Api. Todas as referências permanecem dentro desta solução, sem ciclos.
+**Até o C15, operações de catálogo que precisam do repositório retornam 500 por dependência não registrada.** `/health` e Swagger funcionam sem repositório. Os testes registram um fake exclusivamente no assembly de testes via `WebApplicationFactory`; as rotas e casos de uso são exercitados integralmente com ele.
 
-## Executar e validar
+Referências: Api → Application e Infrastructure; Application → Domain; Infrastructure → Application e Domain. Sem referência ao monólito, UsersAPI ou UsersDB. Domain não depende de pacotes externos.
 
-Pré-requisito: SDK .NET 8 ou posterior compatível, com runtime ASP.NET Core/.NET 8 instalado. Todos os projetos têm `TargetFramework=net8.0`; não é necessário instalar serviços externos.
+## JWT e rotação por kid
 
-Na raiz do repositório:
-
-```powershell
-dotnet restore
-dotnet build
-dotnet test
-
-$env:ASPNETCORE_ENVIRONMENT = "Development"
-dotnet run --project src/FCG.Catalog.Api --no-launch-profile --urls http://localhost:5080
-```
-
-Em outro terminal:
-
-```powershell
-Invoke-WebRequest http://localhost:5080/health
-```
-
-`GET /health` é público e retorna HTTP 200 com `Healthy`. É um health check do host; não verifica dependências externas neste card.
-
-Swagger UI: `http://localhost:5080/swagger/index.html`. Documento OpenAPI: `http://localhost:5080/swagger/v1/swagger.json`. Ambos disponíveis somente em Development. Sem controllers de negócio neste card, o documento inicialmente não contém operações. O endpoint de health é mapeado via Health Checks.
-
-O pipeline inclui Problem Details, tratamento de exceções, páginas de status, autenticação e autorização. Futuros controllers protegidos devem usar `[Authorize]`.
-
-Testes de integração hospedam a API e verificam health sem chave em Development/Production, Swagger por ambiente, Problem Details e autenticação local básica em um controller exclusivo dos testes. As chaves dos testes são geradas em memória e descartadas. UnitTests está preparado, mas sem testes até existirem regras de negócio.
-
-## Configuração por ambiente
-
-O host usa a configuração padrão do ASP.NET Core: `appsettings.json`, `appsettings.{Environment}.json`, variáveis de ambiente e argumentos da linha de comando. Variáveis usam `__` para separar níveis e sobrescrevem os arquivos JSON, por exemplo `Jwt__Issuer`, `Jwt__Audience`, `Jwt__ClockSkewSeconds` e `Jwt__PublicKeyPem`. `ASPNETCORE_ENVIRONMENT` seleciona o ambiente; na ausência de configuração o padrão é Production. `ASPNETCORE_URLS` também pode definir os endereços do host.
-
-`appsettings.Development.json` ajusta somente os logs. Não contém credenciais. O `.gitignore` ignora arquivos usuais de chave e configurações locais; `appsettings.Local.json` não é carregado automaticamente.
-
-## JWT: base do C13
-
-Configuração padrão:
+Configuração versionada, sem chaves reais:
 
 ```json
 "Jwt": {
   "Issuer": "FIAP.CloudGames",
   "Audience": "FIAP.CloudGames.Api",
   "ClockSkewSeconds": 30,
-  "PublicKeyPem": ""
+  "PublicKeys": []
 }
 ```
 
-`AddAuthentication`/`AddJwtBearer` estão preparados para **RS256**, com validação de assinatura, emissor, audiência, expiração e tolerância de 30 segundos. O algoritmo fica restrito a RS256 no código; não há segredo simétrico, chave privada, Authority, discovery ou chamada HTTP ao UsersAPI.
-
-Uma única chave pública RSA em formato PEM pode ser fornecida externamente por `Jwt__PublicKeyPem`, com quebras de linha reais (não a sequência literal `\n`). Por exemplo, quando houver uma chave pública distribuída fora deste repositório:
+Cada entrada de `PublicKeys` possui `Kid` e `PublicKeyPem`. Forneça as chaves públicas confiáveis externamente, por exemplo:
 
 ```powershell
-$env:Jwt__PublicKeyPem = Get-Content -Raw "C:\config\catalog-public.pem"
+$env:Jwt__PublicKeys__0__Kid = "users-key-1"
+$env:Jwt__PublicKeys__0__PublicKeyPem = Get-Content -Raw "C:\config\users-key-1-public.pem"
+$env:Jwt__PublicKeys__1__Kid = "users-key-2"
+$env:Jwt__PublicKeys__1__PublicKeyPem = Get-Content -Raw "C:\config\users-key-2-public.pem"
 ```
 
-Reinicie o host após alterar a chave. Uma chave fornecida inválida ou privada causa erro na inicialização. Nenhuma chave real acompanha este repositório.
+Use quebras de linha reais no PEM. A configuração antiga `Jwt:PublicKeyPem` foi substituída pela coleção. Reinicie o host após mudar a configuração. Para rotação, configure as duas chaves durante a sobreposição e remova a antiga após expiração dos tokens correspondentes.
 
-**Sem chave pública, o scaffold inicia normalmente e health/Swagger continuam acessíveis; tokens não são aceitos em endpoints protegidos.** Com uma chave pública fornecida, a base já valida assinaturas RS256 localmente. O UsersAPI será o único emissor. A estratégia completa de validação efetiva do ambiente, distribuição/rotação, múltiplas chaves e seleção por `kid` permanece no **C14**; nada disso foi implementado aqui.
+- Apenas RS256, assinatura RSA, issuer, audience, exp obrigatório e nbf quando presente, com ClockSkew de 30 segundos.
+- O `kid` seleciona exatamente uma chave local por comparação ordinal. Ausência, valor desconhecido ou assinatura que não corresponde à chave selecionada resulta em 401. Não há fallback ou uso de chaves/URLs do token.
+- `sub` deve ser um único GUID válido diferente de Guid.Empty. Essa é a interpretação adotada no C14 para identificador válido; não há entidade de usuário nem consulta externa.
+- Claims não são remapeadas: identidade usa `sub` e autorização usa `role`.
+- Coleção vazia permite iniciar o host, mas nenhum token é aceito. Entradas incompletas, kids duplicados, PEM inválido ou privado falham na inicialização.
+- Nenhuma chave privada, Authority, discovery, introspection, UsersAPI ou UsersDB é usada pela API.
 
-## Dependências
+## Executar e validar
 
-Versões centralizadas em `Directory.Packages.props`:
+Requer SDK compatível e runtime .NET/ASP.NET Core 8.
 
-| Pacote | Versão | Uso |
-| --- | --- | --- |
-| Microsoft.AspNetCore.Authentication.JwtBearer | 8.0.28 | JWT local |
-| Swashbuckle.AspNetCore | 6.9.0 | Swagger/OpenAPI |
-| Microsoft.AspNetCore.Mvc.Testing | 8.0.28 | Host de integração |
-| Microsoft.NET.Test.Sdk | 17.11.1 | Execução dos testes |
-| xunit | 2.9.3 | Framework de testes |
-| xunit.runner.visualstudio | 2.8.2 | Descoberta e execução xUnit |
+```powershell
+dotnet restore
+dotnet build
+dotnet test
+$env:ASPNETCORE_ENVIRONMENT = "Development"
+dotnet run --project src/FCG.Catalog.Api --no-launch-profile --urls http://localhost:5080
+```
 
-Controllers, Health Checks e Problem Details usam o framework compartilhado ASP.NET Core, sem pacotes adicionais. `Directory.Build.props` concentra net8.0, nullable e implicit usings.
+`GET /health` retorna 200 e `Healthy`; verifica o host, sem banco. Em Development, Swagger está em `/swagger/index.html` (ou `/swagger`) e `/swagger/v1/swagger.json`. Em Production, Swagger retorna 404.
+
+Os testes unitários cobrem domínio e os quatro handlers. Os testes de integração cobrem contratos, paginação, erros, 401/403, role administrativa, duas chaves por kid e tokens inválidos. Chaves RSA são geradas e descartadas somente em memória nos testes. Health e Swagger também são testados sem repositório e sem chaves configuradas.
+
+Versões continuam centralizadas em `Directory.Packages.props`; nenhum pacote novo foi necessário.

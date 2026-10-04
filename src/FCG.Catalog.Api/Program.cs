@@ -1,8 +1,10 @@
+using FCG.Catalog.Api.IoC;
 using FCG.Catalog.Api.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
+builder.Services.AddCatalogApplication();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddProblemDetails();
