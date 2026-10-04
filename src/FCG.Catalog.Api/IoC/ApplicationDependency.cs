@@ -8,7 +8,7 @@ public static class ApplicationDependency
     public static IServiceCollection AddCatalogApplication(this IServiceCollection services)
     {
         // Factories adiam a resolução do repositório até uma operação de catálogo.
-        // C15 fornecerá a implementação; health e Swagger não dependem dela.
+        // Health e Swagger continuam independentes da conexão com o banco.
         services.AddScoped(provider => new ManipuladorCriarJogo(provider.GetRequiredService<IRepositorioJogos>()));
         services.AddScoped(provider => new ManipuladorAtualizarJogo(provider.GetRequiredService<IRepositorioJogos>()));
         services.AddScoped(provider => new ManipuladorObterJogoPorId(provider.GetRequiredService<IRepositorioJogos>()));
