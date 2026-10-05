@@ -1,13 +1,13 @@
 # FCG.CatalogAPI
 
-Microsserviço .NET 8 do FIAP Cloud Games. C13 forneceu o host; C14 migrou domínio, operações e segurança; C15 adicionou PostgreSQL; C16 implementa pedidos de compra; C17 adiciona publicação confiável com Outbox.
+Microsserviço .NET 8 do FIAP Cloud Games. C13 forneceu o host; C14 migrou domínio, operações e segurança; C15 adicionou PostgreSQL; C16 implementa pedidos de compra; C17 adiciona publicação confiável com Outbox; C18 implementa biblioteca e concessão interna.
 
-## Escopo atual (C14 + C15 + C16 + C17)
+## Escopo atual (C14 + C15 + C16 + C17 + C18)
 
 - Entidades `Jogo`, `Categoria` e `CategoriaJogo`, preservando propriedades, construtores, IDs e invariantes.
 - `IRepositorioJogos`, comandos, consultas, resultados e handlers de criação, consulta por ID, listagem paginada e atualização.
 - Contratos HTTP e `JogosController` preservados, com proteção explícita nas escritas.
-- Persistência EF Core 8/Npgsql exclusiva para jogos, categorias e pedidos. Outbox própria e publisher RabbitMQ; biblioteca persistente permanece fora deste escopo.
+- Persistência EF Core 8/Npgsql para jogos, categorias, pedidos e aquisições. Outbox própria, publisher RabbitMQ e biblioteca persistente.
 
 ## Rotas
 
@@ -17,8 +17,9 @@ Microsserviço .NET 8 do FIAP Cloud Games. C13 forneceu o host; C14 migrou domí
 | GET | `/api/v1/jogos/{id}` | Público | 200; 400 por GUID vazio; 404 se inexistente |
 | GET | `/api/v1/jogos` | Público | 200; 400 por paginação inválida |
 | PUT | `/api/v1/jogos/{id}` | role `Administrador` | 200; 400 por dados inválidos; 404 se inexistente |
-| POST | `/api/v1/pedidos` | JWT válido | 202 pendente; 200 replay terminal; 400/404/409; 503 enquanto C18 não fornecer consulta de posse |
+| POST | `/api/v1/pedidos` | JWT válido | 202 pendente; 200 replay terminal; 400/404/409 |
 | GET | `/api/v1/pedidos/{id}` | Titular ou `Administrador` | 200; 403 para outro usuário; 404 inexistente |
+| GET | `/api/v1/biblioteca` | JWT válido, somente titular do sub | 200 lista ou []; 401 sem token válido |
 
 POST/PUT retornam 401 sem token ou com token inválido; 403 com token válido sem a role exigida. O nome da role diferencia maiúsculas/minúsculas. IDs de rota usam a restrição `guid`; formato inválido não corresponde à rota (404).
 
@@ -132,7 +133,7 @@ O POST recebe somente `{ "jogoId": "<guid>" }` e exige um único header `Idempot
 
 A mesma chave para o mesmo usuário/jogo recupera o original antes de verificar jogo, posse e pendência: 202 para PendingPayment e 200 para Paid/Rejected. Outra combinação de jogo com essa chave resulta em 409. Usuários diferentes podem reutilizar o UUID. Nova chave para jogo já possuído ou com pedido pendente resulta em 409. Jogo inexistente retorna 404; inativo retorna 409. 202 inclui Location `/api/v1/pedidos/{id}`. POST e GET exigem JWT, retornando 401 se ausente/inválido. GET permite titular e Administrador, retorna 403 para outro usuário e 404 para pedido inexistente.
 
-**Dependência temporária do C18:** IConsultaBiblioteca está definida na Application, sem implementação/registro de produção. O POST com entrada válida retorna 503 Problem Details até essa implementação ser conectada. Os testes registram fakes somente nos hosts de teste. GET, jogos, health e Swagger permanecem disponíveis. Não criar uma implementação que sempre retorne false para habilitar o POST em produção.
+**Biblioteca real (C18):** IConsultaBiblioteca consulta aquisicoes no CatalogDB, registrada na Infrastructure. O POST não possui mais a guarda temporária 503. Falhas reais de banco propagam; nunca são tratadas como ausência de posse.
 
 Para uma chave nova, ManipuladorCriarPedido inicia transação READ COMMITTED, adquire ILockUsuarioJogo, reconsulta a chave, lê o jogo novamente sem tracking, consulta posse, reconsulta pendência, salva e faz commit. Dispose sem commit desfaz a transação. As duas constraints únicas reconhecidas são traduzidas para recuperação do original ou 409 após rollback, inclusive quando a mesma chave concorre por jogos diferentes.
 
@@ -175,7 +176,7 @@ OutboxWorker
   → confirm sem retorno/nack → nova transação → PublishedAt
 ```
 
-Os dois SaveChanges da compra usam o mesmo CatalogDbContext scoped e a mesma transação. Falha ao gravar Outbox desfaz o Pedido. Replay de Idempotency-Key, inclusive após lock/conflito, não cria outra Outbox. Não há backfill para pedidos pré-C17. C18 continua responsável por IConsultaBiblioteca: o POST permanece 503 enquanto ela não estiver registrada em produção; fakes existem somente em testes.
+Os dois SaveChanges da compra usam o mesmo CatalogDbContext scoped e a mesma transação. Falha ao gravar Outbox desfaz o Pedido. Replay de Idempotency-Key, inclusive após lock/conflito, não cria outra Outbox. Não há backfill para pedidos pré-C17. C18 conecta IConsultaBiblioteca às aquisições locais; fakes continuam exclusivos dos testes.
 
 ### Contrato e identidade
 
@@ -247,3 +248,21 @@ dotnet test --filter FullyQualifiedName~RabbitMqOutboxTests
 Sem RABBITMQ_TEST_CONNECTION, o teste real é explicitamente ignorado. Ele cobre indisponibilidade/recuperação, basic.return sem binding, correção da rota, comparação byte a byte com Payload e duplicata após confirm sem PublishedAt. Testes unitários/fakes não substituem essa validação de broker. Não é necessário executar PaymentsAPI/consumer de negócio; o teste inspeciona mensagens via BasicGet.
 
 C17 não implementa PaymentsAPI/PaymentsDB, consumers, PaymentProcessedEvent, Inbox, Aquisicao, concessão/biblioteca, Notifications, C18/C19, Compose ou Kubernetes. Operação deve monitorar pendências/idade/tentativas e corrigir conectividade/topologia; mensagem permanece recuperável com seus IDs originais.
+
+## Biblioteca do usuário (C18)
+
+`GET /api/v1/biblioteca` exige JWT válido e usa exclusivamente o `sub`, inclusive para Administrador. Não recebe titular por query/body. Retorna 200 com `[{ "gameId": "<guid>", "title": "Jogo", "acquiredAt": "<UTC>" }]` ou `[]`. A consulta usa JOIN local Aquisicao/Jogo, AsNoTracking, projeção dos três campos e ordenação DataAquisicao DESC, Id ASC. Jogos inativos continuam na biblioteca. Sem paginação ou chamada ao UsersAPI.
+
+A única fonte de posse é `aquisicoes`: PK simples `id`, `usuario_id`, `jogo_id`, `data_aquisicao` (timestamptz UTC) e `pedido_id` nullable. A migration `AddAquisicoes` cria somente essa tabela: unique `(usuario_id, jogo_id)`, unique parcial `pedido_id WHERE pedido_id IS NOT NULL`, índice de jogo e FKs locais para jogos/pedidos com RESTRICT. Não existe FK para Users, navegação Identity ou Autorizacao.
+
+`Aquisicao.Conceder` exige pedido não vazio. `Aquisicao.Historica` preserva ID/data e usa pedido null; não importa dados nem cria pedidos fictícios. `ManipuladorConcederJogoAoUsuario` valida IDs, jogo, pedido e correspondência de usuário/jogo antes de consultar posse. Retorna Concedido/JaConcedido ou resultado explícito de validação. Não exige jogo ativo, não muda status nem publica evento. Repetições preservam a aquisição original, incluindo histórico sem pedido.
+
+O caller deve abrir transação no mesmo CatalogDbContext scoped e coordenar o par usando exatamente ILockUsuarioJogo do C16. O repository rejeita escrita sem transação ativa e não aceita histórico pela operação de concessão. INSERT parametrizado com ON CONFLICT (usuario_id, jogo_id) DO NOTHING resolve corridas sem abortar a transação por duplicação de posse. Uma corrida do mesmo pedido também pode atingir ux_aquisicoes_pedido: um savepoint recupera a transação e confirma a igualdade de pedido/usuário/jogo antes de retornar JaConcedido. Outros erros de integridade propagam. Não abre conexão separada, não chama SaveChanges e não confirma transação. O INSERT já é executado na transação externa; rollback o desfaz. O caller deve persistir suas outras alterações e confirmar tudo junto. C19 ficará responsável por Pedido/Paid, aquisição e Inbox no mesmo commit.
+
+POST de pedidos usa posse real: chave nova para jogo possuído retorna 409; compra normal retorna 202 com Outbox. Replay pela mesma Idempotency-Key continua precedendo a posse. Não existe endpoint público de concessão nem concessão automática por pagamento neste card.
+
+Testes C18: BibliotecaTests (domínio/concessão), BibliotecaApiTests (JWT, titular, listagem e POST real) e PostgreSqlBibliotecaTests (constraints, consulta, concorrência, lock externo, visibilidade e rollback). ConsultaBiblioteca true/false é exercitada com PostgreSQL real, sem EF InMemory. CATALOG_TEST_CONNECTION habilita bancos descartáveis catalog_c18_test_<guid>; ConnectionStrings__CatalogDatabase aponta a base autorizada para migration e inspeção de schema. Carregue as variáveis persistidas no escopo User antes dos comandos. RABBITMQ_TEST_CONNECTION habilita a regressão real do publisher no vhost de testes existente.
+
+Validação: dotnet restore; dotnet build; dotnet test; dotnet ef migrations list; dotnet ef database update; dotnet ef migrations has-pending-model-changes. Para os comandos EF, usar --project src/FCG.Catalog.Infrastructure --startup-project src/FCG.Catalog.Api.
+
+Fora do C18: consumer PaymentProcessedEvent, Inbox, transições automáticas de pedido, PaymentsAPI, Notifications, importação/conciliação histórica, Compose e Kubernetes.

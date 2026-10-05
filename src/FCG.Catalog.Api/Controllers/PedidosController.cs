@@ -24,15 +24,12 @@ public sealed class PedidosController : ControllerBase
     [ProducesResponseType(401)]
     [ProducesResponseType(typeof(ProblemDetails), 404)]
     [ProducesResponseType(typeof(ProblemDetails), 409)]
-    [ProducesResponseType(typeof(ProblemDetails), 503)]
     public async Task<IActionResult> Criar(CriarPedidoRequest request,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey, CancellationToken ct)
     {
         var keys = Request.Headers["Idempotency-Key"];
         if (keys.Count != 1 || !Guid.TryParse(idempotencyKey, out var key) || key == Guid.Empty || request.JogoId == Guid.Empty)
             return Problem(statusCode: 400, detail: "Informe jogoId e um único Idempotency-Key UUID não vazio.");
-        if (HttpContext.RequestServices.GetService<IConsultaBiblioteca>() is null)
-            return Problem(statusCode: 503, detail: "Criação de pedidos depende da consulta de biblioteca, a ser conectada no C18.");
         var handler = HttpContext.RequestServices.GetRequiredService<ManipuladorCriarPedido>();
         var result = await handler.ExecutarAsync(Guid.Parse(User.FindFirst("sub")!.Value), request.JogoId, key, ct);
         if (result.Pedido is null) return Problem(statusCode: result.Codigo, detail: result.Erro);

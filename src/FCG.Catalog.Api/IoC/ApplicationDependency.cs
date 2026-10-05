@@ -1,3 +1,4 @@
+using FCG.Catalog.Application.Library;
 using FCG.Catalog.Application.Orders;
 using FCG.Catalog.Application.Abstractions.Repositories;
 using FCG.Catalog.Application.Catalog.Jogos;
@@ -17,6 +18,7 @@ public static class ApplicationDependency
         services.AddScoped(provider => new ManipuladorObterJogoPorId(provider.GetRequiredService<IRepositorioJogos>()));
         services.AddScoped(provider => new ManipuladorListarJogos(provider.GetRequiredService<IRepositorioJogos>()));
         services.AddScoped(p => new ManipuladorCriarPedido(p.GetRequiredService<IRepositorioPedidos>(), p.GetRequiredService<IRepositorioJogos>(), p.GetRequiredService<IConsultaBiblioteca>(), p.GetRequiredService<ILockUsuarioJogo>(), p.GetRequiredService<IRegistroOutbox>(), p.GetRequiredService<IContextoCorrelacao>()));
+        services.AddScoped<ManipuladorConcederJogoAoUsuario>();
         return services;
     }
 }
