@@ -16,7 +16,7 @@ namespace FCG.Catalog.IntegrationTests;
 
 public sealed class PedidosApiTests
 {
-    internal static WebApplicationFactory<Program> WithFakes(CatalogFactory tokens, PedidoFakes fake, bool library = true) =>
+    internal static WebApplicationFactory<Program> WithFakes(CatalogFactory tokens, PedidoFakes fake) =>
         tokens.WithWebHostBuilder(b => b.ConfigureServices(s =>
         {
             s.RemoveAll<IRepositorioJogos>();
@@ -27,7 +27,8 @@ public sealed class PedidosApiTests
             s.AddSingleton<IRepositorioJogos>(fake);
             s.AddSingleton<IRepositorioPedidos>(fake);
             s.AddSingleton<ILockUsuarioJogo>(fake);
-            if (library) s.AddSingleton<IConsultaBiblioteca>(fake);
+            s.RemoveAll<IConsultaBiblioteca>();
+            s.AddSingleton<IConsultaBiblioteca>(fake);
         }));
 
     internal static async Task<HttpResponseMessage> Post(HttpClient client, Guid game, string? key, object? payload = null)
@@ -82,7 +83,6 @@ public sealed class PedidosApiTests
     [InlineData("key-reused", 409)]
     [InlineData("pending", 409)]
     [InlineData("owned", 409)]
-    [InlineData("no-library", 503)]
     public async Task Matriz_post(string scenario, int expected)
     {
         using var tokens = new CatalogFactory();
@@ -98,7 +98,7 @@ public sealed class PedidosApiTests
         if (scenario == "key-reused") fake.Pedidos.Add(new Pedido(user, Guid.NewGuid(), 1, Guid.Parse(key!)));
         if (scenario == "pending") fake.Pedidos.Add(new Pedido(user, game.Id, 1, Guid.NewGuid()));
         fake.Possui = scenario == "owned";
-        using var factory = WithFakes(tokens, fake, scenario != "no-library");
+        using var factory = WithFakes(tokens, fake);
         using var client = factory.CreateClient();
         if (scenario != "no-token") client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
             tokens.Token(scenario == "invalid-token" ? "bad-signature" : "valid", "Usuario", user));

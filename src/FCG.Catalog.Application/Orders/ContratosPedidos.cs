@@ -2,7 +2,7 @@ using FCG.Catalog.Domain.Orders;
 
 namespace FCG.Catalog.Application.Orders;
 
-// C18 fornecerá a implementação real; nenhum fallback de posse em produção.
+// Posse consultada exclusivamente nas aquisições do CatalogDB.
 public interface IConsultaBiblioteca
 {
     Task<bool> PossuiJogoAsync(Guid userId, Guid gameId, CancellationToken cancellationToken = default);
