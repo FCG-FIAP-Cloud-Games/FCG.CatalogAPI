@@ -5,7 +5,8 @@ namespace FCG.Catalog.Application.Orders;
 
 public sealed class ManipuladorCriarPedido(
     IRepositorioPedidos pedidos, IRepositorioJogos jogos,
-    IConsultaBiblioteca biblioteca, ILockUsuarioJogo usuarioJogoLock)
+    IConsultaBiblioteca biblioteca, ILockUsuarioJogo usuarioJogoLock,
+    IRegistroOutbox outbox, IContextoCorrelacao correlacao)
 {
     public async Task<ResultadoPedido> ExecutarAsync(Guid userId, Guid gameId, Guid key, CancellationToken ct = default)
     {
@@ -29,6 +30,7 @@ public sealed class ManipuladorCriarPedido(
                 return new(null, 409, "Já existe pedido pendente para este jogo.");
             var pedido = new Pedido(userId, gameId, jogo.Preco, key);
             await pedidos.AdicionarAsync(pedido, ct);
+            await outbox.AdicionarAsync(OrderPlacedEvent.De(pedido, correlacao.CorrelationId), ct);
             await transaction.CommitAsync(ct);
             return new(pedido, 202);
         }

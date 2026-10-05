@@ -16,6 +16,7 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+app.UseMiddleware<FCG.Catalog.Api.CorrelationMiddleware>();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 

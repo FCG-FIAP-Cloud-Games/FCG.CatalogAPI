@@ -32,7 +32,7 @@ public sealed class PedidosTests
         Assert.Equal(pedido.CreatedAt, pedido.UpdatedAt);
         fake.Jogos[0].AtualizarDados("Jogo", null, null, 99);
         Assert.Equal(29.90m, pedido.Price);
-        Assert.Equal(new[] { "chave", "begin", "lock", "chave", "jogo", "posse", "pendente", "save", "commit", "dispose" }, fake.Chamadas);
+        Assert.Equal(new[] { "chave", "begin", "lock", "chave", "jogo", "posse", "pendente", "save", "outbox", "commit", "dispose" }, fake.Chamadas);
     }
 
     [Theory]

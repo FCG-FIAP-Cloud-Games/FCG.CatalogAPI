@@ -21,6 +21,8 @@ public sealed class PedidosApiTests
         {
             s.RemoveAll<IRepositorioJogos>();
             s.RemoveAll<IRepositorioPedidos>();
+            s.RemoveAll<IRegistroOutbox>();
+            s.AddSingleton<IRegistroOutbox>(fake);
             s.RemoveAll<ILockUsuarioJogo>();
             s.AddSingleton<IRepositorioJogos>(fake);
             s.AddSingleton<IRepositorioPedidos>(fake);

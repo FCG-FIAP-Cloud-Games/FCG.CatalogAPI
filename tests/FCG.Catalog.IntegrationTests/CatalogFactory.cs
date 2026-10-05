@@ -22,6 +22,7 @@ public sealed class CatalogFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
+        builder.UseSetting("Outbox:Enabled", "false");
         builder.UseSetting("Jwt:Issuer", "FIAP.CloudGames");
         builder.UseSetting("Jwt:Audience", "FIAP.CloudGames.Api");
         builder.UseSetting("Jwt:ClockSkewSeconds", "30");
