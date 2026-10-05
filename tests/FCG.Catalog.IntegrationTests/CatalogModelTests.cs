@@ -16,7 +16,7 @@ public sealed class CatalogModelTests
         using var db = new CatalogDbContext(new DbContextOptionsBuilder<CatalogDbContext>()
             .UseNpgsql("Host=localhost;Database=model_only;Username=catalog").Options);
         var model = db.GetService<IDesignTimeModel>().Model;
-        Assert.Equal(new[] { "jogos", "pedidos", "rel_CategoriaJogo", "tb_Categorias" },
+        Assert.Equal(new[] { "catalog_outbox", "jogos", "pedidos", "rel_CategoriaJogo", "tb_Categorias" },
             model.GetEntityTypes().Select(e => e.GetTableName()).OrderBy(n => n, StringComparer.Ordinal));
         foreach (var entity in model.GetEntityTypes())
         {
@@ -38,9 +38,9 @@ public sealed class CatalogModelTests
         Assert.All(relation.GetForeignKeys(), fk => Assert.Equal(DeleteBehavior.Cascade, fk.DeleteBehavior));
         Assert.Contains(relation.GetIndexes(), index => index.IsUnique &&
             index.Properties.Select(p => p.Name).SequenceEqual(new[] { "JogoId", "CategoriaId" }));
-        Assert.Equal(2, db.Database.GetMigrations().Count());
+        Assert.Equal(3, db.Database.GetMigrations().Count());
         var sql = db.GetService<IMigrator>().GenerateScript();
-        Assert.Equal(5, sql.Split("CREATE TABLE ").Length - 1); // Three catalog tables + orders + EF history.
+        Assert.Equal(6, sql.Split("CREATE TABLE ").Length - 1); // Three catalog tables + orders + outbox + EF history.
         Assert.Contains("CREATE TABLE jogos", sql);
         Assert.Contains("CREATE TABLE \"tb_Categorias\"", sql);
         Assert.Contains("CREATE TABLE \"rel_CategoriaJogo\"", sql);

@@ -73,6 +73,7 @@ public sealed class PostgreSqlPedidosTests
                 using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
                 {
                     builder.UseEnvironment("Development");
+                    builder.UseSetting("Outbox:Enabled", "false");
                     builder.UseSetting("ConnectionStrings:CatalogDatabase", settings.ConnectionString);
                     builder.UseSetting("Jwt:PublicKeys:0:Kid", "users-key-1");
                     builder.UseSetting("Jwt:PublicKeys:0:PublicKeyPem", tokens.PublicKey);
@@ -121,6 +122,8 @@ public sealed class PostgreSqlPedidosTests
                         Assert.Equal(2, await db.Pedidos.CountAsync(p => p.GameId == game.Id));
                     }
                 }
+                var orderIds = await db.Pedidos.Where(p => p.UserId == user || p.UserId == otherUser).Select(p => p.Id).ToListAsync();
+                Assert.Equal(orderIds.Count, await db.Outbox.CountAsync(m => orderIds.Contains(m.OrderId)));
                 foreach (var response in responses) response.Dispose();
             }
 

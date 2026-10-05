@@ -1,4 +1,5 @@
 using FCG.Catalog.Application.Orders;
+using FCG.Catalog.Infrastructure.Outbox;
 using FCG.Catalog.Infrastructure.Repositories;
 using FCG.Catalog.Infrastructure.Data.EF;
 using FCG.Catalog.Application.Abstractions.Repositories;
@@ -26,6 +27,14 @@ public static class InfrastructureDependency
         services.AddScoped<IRepositorioJogos, RepositorioJogos>();
         services.AddScoped<IRepositorioPedidos, RepositorioPedidos>();
         services.AddScoped<ILockUsuarioJogo, LockUsuarioJogo>();
+        services.Configure<RabbitMqOptions>(configuration.GetSection("RabbitMq"));
+        services.Configure<OutboxOptions>(configuration.GetSection("Outbox"));
+        services.AddScoped<RepositorioOutbox>();
+        services.AddScoped<IRegistroOutbox>(p => p.GetRequiredService<RepositorioOutbox>());
+        services.AddScoped<IRepositorioOutbox>(p => p.GetRequiredService<RepositorioOutbox>());
+        services.AddSingleton<IPublicadorOutbox, RabbitMqPublisher>();
+        services.AddScoped<EntregadorOutbox>();
+        services.AddHostedService<OutboxWorker>();
         return services;
     }
 }
