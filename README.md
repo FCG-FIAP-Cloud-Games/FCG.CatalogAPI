@@ -13,16 +13,30 @@ Microsserviço do FIAP Cloud Games responsável pelo catálogo de jogos, pedidos
 
 .NET 8, ASP.NET Core, EF Core 8 com Npgsql/PostgreSQL, RabbitMQ.Client, JWT RS256, Swagger e xUnit. As versões dos pacotes estão em `Directory.Packages.props`.
 
-## Pré-requisitos
+## Execução local
+
+Execute os passos na ordem abaixo, na raiz do repositório e na mesma sessão PowerShell. Substitua os placeholders antes de executar os comandos.
+
+### 1. Pré-requisitos
 
 - .NET SDK 8 e runtime ASP.NET Core 8.
 - PostgreSQL acessível e banco exclusivo do CatalogAPI.
 - RabbitMQ acessível, com usuário e virtual host configurados, para publicar eventos.
 - Chave pública RSA e JWT emitido por um emissor confiável para acessar rotas protegidas.
 
-Execute os comandos abaixo na raiz do repositório. Os exemplos de configuração usam PowerShell; substitua os placeholders antes de executá-los.
+Docker é opcional para executar PostgreSQL e RabbitMQ.
 
-## Configuração
+### 2. Dependências externas
+
+Antes de iniciar a API, disponibilize PostgreSQL e RabbitMQ. A conexão do banco é configurada por `ConnectionStrings__CatalogDatabase`; a conexão do broker, pelas variáveis `RabbitMq__*`.
+
+Se usar Docker local, confira os containers ativos:
+
+```powershell
+docker ps
+```
+
+### 3. Variáveis de ambiente
 
 Forneça as configurações por variáveis de ambiente. O `appsettings.Development.json` altera apenas os níveis de log.
 
@@ -46,7 +60,7 @@ Forneça as configurações por variáveis de ambiente. O `appsettings.Developme
 ```powershell
 $env:ConnectionStrings__CatalogDatabase = 'Host=<host>;Port=<porta>;Database=<banco-catalogo>;Username=<usuario>;Password=<senha>'
 $env:RabbitMq__Host = '<host>'
-$env:RabbitMq__Port = '5672'
+$env:RabbitMq__Port = '<porta>'
 $env:RabbitMq__VirtualHost = '<vhost>'
 $env:RabbitMq__Username = '<usuario>'
 $env:RabbitMq__Password = '<senha>'
@@ -60,25 +74,66 @@ $env:Jwt__PublicKeys__0__PublicKeyPem = Get-Content -Raw '<caminho-public-key.pe
 
 O PEM deve conter quebras de linha reais. Para mais chaves, use índices `1`, `2`, etc., com `Kid` único. Configure somente chaves públicas e reinicie a aplicação após alterar essa configuração. Não grave credenciais no repositório.
 
-## PostgreSQL e migrations
+### 4. Restore e build
+
+```powershell
+dotnet restore
+dotnet build
+```
+
+### 5. PostgreSQL e migrations
 
 O CatalogAPI usa banco próprio para catálogo, pedidos, aquisições e Outbox. Configure `ConnectionStrings__CatalogDatabase` antes dos comandos EF. O usuário precisa de permissão para alterar o schema; se o banco ainda não existir, precisa também de `CREATEDB`, ou o banco deve ser criado previamente.
 
 ```powershell
-dotnet restore
 dotnet tool restore
 
 # Listar migrations
 dotnet ef migrations list --project src/FCG.Catalog.Infrastructure --startup-project src/FCG.Catalog.Api --context CatalogDbContext
 
 # Aplicar migrations
-dotnet ef database update --project src/FCG.Catalog.Infrastructure --startup-project src/FCG.Catalog.Api --context CatalogDbContext
+dotnet ef database update `
+  --project src/FCG.Catalog.Infrastructure `
+  --startup-project src/FCG.Catalog.Api `
+  --context CatalogDbContext
 
 # Verificar divergências entre o modelo e a última migration
 dotnet ef migrations has-pending-model-changes --project src/FCG.Catalog.Infrastructure --startup-project src/FCG.Catalog.Api --context CatalogDbContext
 ```
 
 O manifesto local fornece `dotnet-ef` 8.0.28. A aplicação não aplica migrations automaticamente ao iniciar.
+
+### 6. Executar a API
+
+```powershell
+$env:ASPNETCORE_ENVIRONMENT = 'Development'
+
+dotnet run `
+  --project src/FCG.Catalog.Api `
+  --no-launch-profile `
+  --urls 'http://localhost:5080'
+```
+
+A porta **5080 é apenas um exemplo** escolhido com `--urls` e pode ser substituída por outra porta livre. O repositório não possui `launchSettings.json` nem fixa uma URL de escuta. Se alterar a porta, ajuste também as URLs abaixo.
+
+### 7. Health
+
+Acesse [http://localhost:5080/health](http://localhost:5080/health). O endpoint é público e verifica apenas o host, sem validar PostgreSQL ou RabbitMQ.
+
+### 8. Swagger
+
+Acesse [http://localhost:5080/swagger/index.html](http://localhost:5080/swagger/index.html) para consultar os contratos e experimentar os endpoints públicos. A especificação está em `/swagger/v1/swagger.json`.
+
+O Swagger é habilitado somente em `Development`. Para consumir rotas protegidas, envie `Authorization: Bearer <token>` em um cliente HTTP, conforme a seção de autenticação.
+
+## Problemas comuns
+
+| Problema | O que verificar |
+| --- | --- |
+| `docker ps` falha com `dockerDesktopLinuxEngine` | Se estiver usando Docker, confira se o Docker Desktop e o engine Linux estão iniciados. |
+| Falha de conexão com PostgreSQL | Valide `ConnectionStrings__CatalogDatabase` e a disponibilidade do servidor. |
+| Outbox não consegue publicar | Valide `RabbitMq__*`, a disponibilidade do broker e `Outbox__Enabled=true`. Confira também se há uma fila vinculada ao exchange. |
+| Swagger não aparece | Confirme `ASPNETCORE_ENVIRONMENT=Development` na sessão que inicia a API e a porta usada em `--urls`. |
 
 ## RabbitMQ e Outbox
 
@@ -103,22 +158,6 @@ Envie `Authorization: Bearer <token>` nas rotas protegidas. O CatalogAPI não em
 - Sem chaves públicas configuradas, o host inicia, mas nenhum JWT é aceito. Chaves incompletas, privadas, inválidas ou com `Kid` duplicado impedem a inicialização.
 
 Rotas protegidas retornam `401` sem token válido e `403` quando o usuário não tem a permissão necessária.
-
-## Como rodar
-
-Após configurar o ambiente e aplicar as migrations:
-
-```powershell
-dotnet restore
-dotnet build
-$env:ASPNETCORE_ENVIRONMENT = 'Development'
-dotnet run --project src/FCG.Catalog.Api --no-launch-profile --urls 'http://localhost:<porta>'
-```
-
-Substitua `<porta>` por uma porta livre. O repositório não possui `launchSettings.json` nem fixa uma URL de escuta; o comando acima define a URL para essa execução.
-
-- Health: `GET /health`, público. Verifica apenas o host, sem validar PostgreSQL ou RabbitMQ.
-- Swagger: `/swagger/index.html` e `/swagger/v1/swagger.json`, disponíveis somente em `Development`.
 
 ## Endpoints
 
@@ -203,7 +242,7 @@ A solução inclui testes unitários e de integração. Quando `ConnectionString
 
 ### Testes de integração externos
 
-Alguns testes usam PostgreSQL e RabbitMQ reais. Configure somente ambientes de desenvolvimento descartáveis:
+Alguns testes usam PostgreSQL e RabbitMQ reais. `CATALOG_TEST_CONNECTION` e `RABBITMQ_TEST_CONNECTION` são exclusivas dos testes de integração e não configuram a execução normal da API. Configure somente ambientes de desenvolvimento descartáveis:
 
 | Variável | Configuração |
 | --- | --- |
