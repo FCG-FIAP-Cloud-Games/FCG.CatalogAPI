@@ -123,8 +123,10 @@ public sealed class PedidosTests
         var p = new Pedido(UserId, Guid.NewGuid(), 1, Guid.NewGuid());
         p.Finalizar(status);
         Assert.True(p.UpdatedAt >= p.CreatedAt);
-        Assert.Throws<InvalidOperationException>(() => p.Finalizar(StatusPedido.Paid));
-        Assert.Throws<InvalidOperationException>(() => p.Finalizar(StatusPedido.Rejected));
+        var updated = p.UpdatedAt;
+        p.Finalizar(status);
+        Assert.Equal(updated, p.UpdatedAt);
+        Assert.Throws<InvalidOperationException>(() => p.Finalizar(status == StatusPedido.Paid ? StatusPedido.Rejected : StatusPedido.Paid));
         Assert.Throws<InvalidOperationException>(() => p.Finalizar(StatusPedido.PendingPayment));
     }
 

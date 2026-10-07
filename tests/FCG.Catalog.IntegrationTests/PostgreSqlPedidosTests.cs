@@ -74,6 +74,7 @@ public sealed class PostgreSqlPedidosTests
                 {
                     builder.UseEnvironment("Development");
                     builder.UseSetting("Outbox:Enabled", "false");
+                    builder.UseSetting("RabbitMq:ConsumerEnabled", "false");
                     builder.UseSetting("ConnectionStrings:CatalogDatabase", settings.ConnectionString);
                     builder.UseSetting("Jwt:PublicKeys:0:Kid", "users-key-1");
                     builder.UseSetting("Jwt:PublicKeys:0:PublicKeyPem", tokens.PublicKey);

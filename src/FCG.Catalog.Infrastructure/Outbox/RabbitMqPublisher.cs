@@ -11,6 +11,10 @@ public sealed class RabbitMqOptions
     public string Username { get; set; } = "";
     public string Password { get; set; } = "";
     public string Exchange { get; set; } = "OrderPlacedEvent";
+    public bool ConsumerEnabled { get; set; } = true;
+    public string PaymentProcessedExchange { get; set; } = "PaymentProcessedEvent";
+    public string PaymentProcessedQueue { get; set; } = "catalog-payment-processed";
+    public string PaymentProcessedErrorQueue { get; set; } = "catalog-payment-processed-error";
 }
 
 public sealed class RabbitMqPublisher(IOptions<RabbitMqOptions> options) : IPublicadorOutbox, IAsyncDisposable

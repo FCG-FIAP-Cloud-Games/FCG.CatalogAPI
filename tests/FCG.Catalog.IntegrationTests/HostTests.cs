@@ -90,6 +90,7 @@ public sealed class HostTests
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment);
+            builder.UseSetting("RabbitMq:ConsumerEnabled", "false");
             if (!string.IsNullOrEmpty(publicKey))
             {
                 builder.UseSetting("Jwt:PublicKeys:0:Kid", "users-key-1");

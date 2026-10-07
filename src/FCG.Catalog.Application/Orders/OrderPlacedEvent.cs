@@ -18,6 +18,11 @@ public interface IContextoCorrelacao { Guid CorrelationId { get; } }
 public sealed class ContextoCorrelacao : IContextoCorrelacao
 {
     public Guid CorrelationId { get; private set; } = Guid.NewGuid();
+    public void DefinirRecebido(Guid id)
+    {
+        if (id == Guid.Empty) throw new ArgumentException("CorrelationId recebido não pode ser vazio.", nameof(id));
+        CorrelationId = id;
+    }
     public void Definir(IReadOnlyList<string> valores)
     {
         CorrelationId = valores.Count == 1 && Guid.TryParse(valores[0], out var id) && id != Guid.Empty

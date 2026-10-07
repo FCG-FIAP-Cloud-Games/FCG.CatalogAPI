@@ -35,6 +35,7 @@ public sealed class BibliotecaApiTests
         {
             b.UseEnvironment("Development");
             b.UseSetting("Outbox:Enabled", "false");
+            b.UseSetting("RabbitMq:ConsumerEnabled", "false");
             b.UseSetting("ConnectionStrings:CatalogDatabase", env.ConnectionString);
             b.UseSetting("Jwt:Issuer", "FIAP.CloudGames"); b.UseSetting("Jwt:Audience", "FIAP.CloudGames.Api");
             b.UseSetting("Jwt:PublicKeys:0:Kid", "users-key-1");

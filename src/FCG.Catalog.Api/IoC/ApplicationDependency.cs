@@ -19,6 +19,7 @@ public static class ApplicationDependency
         services.AddScoped(provider => new ManipuladorListarJogos(provider.GetRequiredService<IRepositorioJogos>()));
         services.AddScoped(p => new ManipuladorCriarPedido(p.GetRequiredService<IRepositorioPedidos>(), p.GetRequiredService<IRepositorioJogos>(), p.GetRequiredService<IConsultaBiblioteca>(), p.GetRequiredService<ILockUsuarioJogo>(), p.GetRequiredService<IRegistroOutbox>(), p.GetRequiredService<IContextoCorrelacao>()));
         services.AddScoped<ManipuladorConcederJogoAoUsuario>();
+        services.AddScoped<FCG.Catalog.Application.Payments.IProcessadorPagamento, FCG.Catalog.Application.Payments.ManipuladorPaymentProcessedEvent>();
         return services;
     }
 }

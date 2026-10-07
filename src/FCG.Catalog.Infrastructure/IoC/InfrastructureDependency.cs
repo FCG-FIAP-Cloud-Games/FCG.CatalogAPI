@@ -40,6 +40,8 @@ public static class InfrastructureDependency
         services.AddSingleton<IPublicadorOutbox, RabbitMqPublisher>();
         services.AddScoped<EntregadorOutbox>();
         services.AddHostedService<OutboxWorker>();
+        services.AddScoped<FCG.Catalog.Application.Payments.IRepositorioProcessamentoPagamento, FCG.Catalog.Infrastructure.Inbox.RepositorioProcessamentoPagamento>();
+        services.AddHostedService<FCG.Catalog.Infrastructure.Messaging.PaymentProcessedConsumer>();
         return services;
     }
 }

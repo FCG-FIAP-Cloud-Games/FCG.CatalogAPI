@@ -14,6 +14,9 @@ public sealed class CorrelationApiTests
         {
             b.UseEnvironment("Development");
             b.UseSetting("Outbox:Enabled", "true");
+            b.UseSetting("RabbitMq:ConsumerEnabled", "true");
+            b.UseSetting("RabbitMq:Host", "127.0.0.1");
+            b.UseSetting("RabbitMq:Port", "1");
             b.UseSetting("ConnectionStrings:CatalogDatabase", "");
             b.UseSetting("RabbitMq:Username", "");
             b.UseSetting("RabbitMq:Password", "");
