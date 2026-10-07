@@ -33,6 +33,7 @@ public sealed class Pedido
 
     public void Finalizar(StatusPedido status)
     {
+        if (Status == status && status is StatusPedido.Paid or StatusPedido.Rejected) return;
         if (Status != StatusPedido.PendingPayment || status is not (StatusPedido.Paid or StatusPedido.Rejected))
             throw new InvalidOperationException("Somente pedidos pendentes podem ser finalizados como Paid ou Rejected.");
         Status = status;

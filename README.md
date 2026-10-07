@@ -8,6 +8,7 @@ Microsserviço do FIAP Cloud Games responsável pelo catálogo de jogos, pedidos
 - Registrar pedidos com o preço atual do catálogo e idempotência.
 - Consultar os jogos adquiridos pelo usuário autenticado.
 - Publicar `OrderPlacedEvent` no RabbitMQ por meio de uma Outbox persistida no PostgreSQL.
+- Consumir `PaymentProcessedEvent` de forma idempotente, finalizar pedidos e conceder jogos aprovados.
 
 ## Stack
 
@@ -49,6 +50,10 @@ Forneça as configurações por variáveis de ambiente. O `appsettings.Developme
 | `RabbitMq__Username` | Usuário do broker; vazio por padrão. |
 | `RabbitMq__Password` | Senha do broker; vazia por padrão. |
 | `RabbitMq__Exchange` | Exchange de publicação; `OrderPlacedEvent`. |
+| `RabbitMq__ConsumerEnabled` | Habilita o consumer de pagamentos; `true`. |
+| `RabbitMq__PaymentProcessedExchange` | Exchange fanout de pagamentos; `PaymentProcessedEvent`. |
+| `RabbitMq__PaymentProcessedQueue` | Fila própria do Catalog; `catalog-payment-processed`. |
+| `RabbitMq__PaymentProcessedErrorQueue` | Fila de erro; `catalog-payment-processed-error`. |
 | `Outbox__Enabled` | Habilita o publicador em segundo plano; `true`. |
 | `Jwt__Issuer` | Emissor aceito; `FIAP.CloudGames`. |
 | `Jwt__Audience` | Audiência aceita; `FIAP.CloudGames.Api`. |
@@ -83,7 +88,7 @@ dotnet build
 
 ### 5. PostgreSQL e migrations
 
-O CatalogAPI usa banco próprio para catálogo, pedidos, aquisições e Outbox. Configure `ConnectionStrings__CatalogDatabase` antes dos comandos EF. O usuário precisa de permissão para alterar o schema; se o banco ainda não existir, precisa também de `CREATEDB`, ou o banco deve ser criado previamente.
+O CatalogAPI usa banco próprio para catálogo, pedidos, aquisições, Outbox e Inbox. Configure `ConnectionStrings__CatalogDatabase` antes dos comandos EF. O usuário precisa de permissão para alterar o schema; se o banco ainda não existir, precisa também de `CREATEDB`, ou o banco deve ser criado previamente.
 
 ```powershell
 dotnet tool restore
@@ -143,9 +148,31 @@ CatalogAPI → Outbox → OrderPlacedEvent → RabbitMQ
 
 Configure a conexão pelas variáveis `RabbitMq__*`. O publicador declara o exchange configurado como `fanout`, durável e sem exclusão automática. O usuário do broker precisa de acesso ao virtual host e permissão para declarar o exchange e publicar.
 
-A API não cria filas nem bindings. Provisione uma fila e seu binding ao exchange para receber os eventos. Sem rota disponível ou com falha no broker, as mensagens continuam pendentes para novas tentativas.
+Para `OrderPlacedEvent`, provisione a fila do destinatário e seu binding ao exchange para receber os eventos. Sem rota disponível ou com falha no broker, as mensagens continuam pendentes para novas tentativas.
 
 Pedido e evento são gravados juntos no banco; um serviço em segundo plano publica a Outbox. A entrega pode se repetir, portanto consumidores devem deduplicar por `EventId`. Com `Outbox__Enabled=false`, a publicação fica desativada, mas novos pedidos continuam gravando eventos na Outbox.
+
+## Consumo de pagamentos
+
+```text
+PaymentProcessedEvent → CatalogAPI → Pedido Paid/Rejected → Biblioteca quando Approved
+```
+
+O consumer usa RabbitMQ.Client, declara exchange fanout e filas duráveis, sem exclusão automática, e consome com prefetch 1 e ACK manual. A fila do Catalog é independente de qualquer fila de Notifications. `RabbitMq__ConsumerEnabled=false` desativa apenas esse consumer. A conexão usa as mesmas opções `RabbitMq__Host/Port/VirtualHost/Username/Password` da Outbox. Falhas no broker provocam reconexão a cada 2 segundos sem impedir o startup HTTP.
+
+O transporte aceito é `application/vnd.masstransit+json`: o adapter da Infrastructure extrai `message` do envelope MassTransit. Domain/Application não conhecem o envelope. `amount` aceita string decimal invariável (como `"99.90"`) ou número JSON decimal, sem `double` nem arredondamento. Content-Type desconhecido, envelope incompleto e contratos inválidos são permanentes.
+
+A idempotência usa `message.eventId` e o consumer estável `Catalog.PaymentProcessedEvent` na tabela `inbox_messages`, com índice único por consumer/evento. O `MessageId` AMQP não substitui o EventId. A correlação de negócio vem de `message.correlationId`.
+
+O processamento abre uma transação e adquire o mesmo advisory transaction lock de criação de pedidos, por usuário/jogo. Reconsulta Inbox, pedido e posse após o lock; compara usuário, jogo, preço contratado e moeda persistidos no pedido. A moeda deve ter três letras ASCII maiúsculas e coincidir exatamente com o pedido; não há conversão cambial ou consulta ao preço atual para validar o pagamento.
+
+`Approved` grava Paid, aquisição com PedidoId e Inbox em um único commit. `Rejected` grava Rejected e Inbox sem conceder jogo. Estados terminais compatíveis preservam UpdatedAt; resultados contraditórios vão para erro. Aquisições históricas válidas são preservadas; vínculos inconsistentes de PedidoId são rejeitados.
+
+O ACK de sucesso ocorre após commit. Falhas permanentes são transferidas diretamente para `catalog-payment-processed-error`. Falhas de infraestrutura têm três tentativas totais, com esperas assíncronas de 200 e 400 ms. O header `x-catalog-payment-attempt` começa em 1 quando ausente e é incrementado na republicação persistente para a própria fila. `x-catalog-payment-error` registra apenas o código/tipo técnico.
+
+Retry e fila de erro preservam os bytes originais, MessageId, CorrelationId, ContentType e headers, sem gerar EventId. O consumer confirma a publicação com `mandatory` e publisher confirms antes de ACK da entrega transferida. Se a transferência falhar, a entrega fica sem ACK e a conexão é recriada. Quedas entre publicação e ACK podem duplicar entregas; a Inbox protege os efeitos de negócio. Indisponibilidade do próprio broker mantém a entrega pendente até reconexão.
+
+Logs incluem EventId, CorrelationId, PaymentId, OrderId, Status, tentativa e resultado, sem payload completo ou credenciais.
 
 ## Autenticação
 
@@ -224,7 +251,7 @@ O usuário vem do `sub`; o preço vem do catálogo e a moeda é `BRL`. A criaç�
 - `Idempotency-Key` é obrigatório e deve conter um único UUID não vazio.
 - Repetir a chave para o mesmo usuário e jogo recupera o pedido original: `202` se pendente ou `200` se finalizado. Usá-la para outro jogo retorna `409`.
 - Uma nova chave para jogo já adquirido ou com pedido pendente retorna `409`, sem criar outro pedido. Jogo inativo retorna `409`; inexistente, `404`.
-- Criar um pedido não concede o jogo imediatamente. O projeto não contém consumidor de pagamento nem integração que finalize pedidos e conceda jogos automaticamente.
+- Criar um pedido não concede o jogo imediatamente. O consumer de pagamento finaliza o pedido e concede o jogo somente quando recebe `Approved`.
 
 ## Biblioteca do usuário
 
@@ -250,3 +277,11 @@ Alguns testes usam PostgreSQL e RabbitMQ reais. `CATALOG_TEST_CONNECTION` e `RAB
 | `RABBITMQ_TEST_CONNECTION` | URI `amqp://<usuario>:<senha>@<host>:<porta>/<vhost>` de um virtual host exclusivo, vazio e descartável. Também exige `CATALOG_TEST_CONNECTION`. |
 
 Após configurar essas variáveis, execute `dotnet test`. Sem as variáveis necessárias, os respectivos testes externos são ignorados.
+
+Os testes de pagamento criam bancos e filas exclusivos, verificam rollback, redelivery, ACK, retry, fila de erro e concorrência com o POST. Para exercitar também o publisher real do Payments, sem editar seus fontes nem adicionar MassTransit ao Catalog:
+
+```powershell
+./tests/Invoke-PaymentsInterop.ps1 -PaymentsRepository '../FCG.PaymentsAPI'
+```
+
+O script compila o contrato e publisher existentes em um executável temporário com MassTransit 8.3.6 e publica no exchange oficial do vhost de testes. O teste captura e valida o envelope real, o commit e o ACK. Esse teste isola o publisher; não executa o fluxo HTTP/banco/Outbox completo do Payments. Alternativamente, `PAYMENTS_TEST_PUBLISHER` pode apontar para esse executável DLL para incluir a interoperabilidade em `dotnet test`.

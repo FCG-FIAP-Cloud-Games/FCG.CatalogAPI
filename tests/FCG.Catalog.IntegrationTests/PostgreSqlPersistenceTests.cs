@@ -37,11 +37,11 @@ public sealed class PostgreSqlPersistenceTests
         {
             var names = new List<string>();
             while (await reader.ReadAsync()) names.Add(reader.GetString(0));
-            Assert.Equal(new[] { "__EFMigrationsHistory", "aquisicoes", "catalog_outbox", "jogos", "pedidos", "rel_CategoriaJogo", "tb_Categorias" }, names);
+            Assert.Equal(new[] { "__EFMigrationsHistory", "aquisicoes", "catalog_outbox", "inbox_messages", "jogos", "pedidos", "rel_CategoriaJogo", "tb_Categorias" }, names);
         }
         await using var db = new CatalogDbContext(new DbContextOptionsBuilder<CatalogDbContext>()
             .UseNpgsql(connectionString).Options);
-        Assert.Equal(4, (await db.Database.GetAppliedMigrationsAsync()).Count());
+        Assert.Equal(5, (await db.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Empty(await db.Database.GetPendingMigrationsAsync());
     }
     [PostgreSqlFact]
@@ -62,7 +62,7 @@ public sealed class PostgreSqlPersistenceTests
             await using (var db = new CatalogDbContext(options))
             {
                 await db.Database.MigrateAsync();
-                Assert.Equal(4, (await db.Database.GetAppliedMigrationsAsync()).Count());
+                Assert.Equal(5, (await db.Database.GetAppliedMigrationsAsync()).Count());
                 await db.Database.MigrateAsync();
             }
 
@@ -71,6 +71,7 @@ public sealed class PostgreSqlPersistenceTests
             using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             {
                 builder.UseEnvironment("Development");
+                builder.UseSetting("RabbitMq:ConsumerEnabled", "false");
                 builder.UseSetting("ConnectionStrings:CatalogDatabase", settings.ConnectionString);
                 builder.UseSetting("Jwt:PublicKeys:0:Kid", "users-key-1");
                 builder.UseSetting("Jwt:PublicKeys:0:PublicKeyPem", tokens.PublicKey);
@@ -151,7 +152,7 @@ public sealed class PostgreSqlPersistenceTests
             await using var reader = await tables.ExecuteReaderAsync();
             var names = new List<string>();
             while (await reader.ReadAsync()) names.Add(reader.GetString(0));
-            Assert.Equal(new[] { "__EFMigrationsHistory", "aquisicoes", "catalog_outbox", "jogos", "pedidos", "rel_CategoriaJogo", "tb_Categorias" }, names);
+            Assert.Equal(new[] { "__EFMigrationsHistory", "aquisicoes", "catalog_outbox", "inbox_messages", "jogos", "pedidos", "rel_CategoriaJogo", "tb_Categorias" }, names);
         }
         finally
         {
