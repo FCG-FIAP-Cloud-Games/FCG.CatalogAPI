@@ -121,6 +121,21 @@ dotnet run `
 
 A porta **5080 é apenas um exemplo** escolhido com `--urls` e pode ser substituída por outra porta livre. O repositório não possui `launchSettings.json` nem fixa uma URL de escuta. Se alterar a porta, ajuste também as URLs abaixo.
 
+### Executar em container
+
+Na raiz do repositório, crie a imagem e inicie o container:
+
+```powershell
+docker build -t fcg-catalog-api .
+docker run --rm -p 5080:8080 `
+  -e ASPNETCORE_ENVIRONMENT=Development `
+  -e ConnectionStrings__CatalogDatabase='<connection-string>' `
+  -e RabbitMq__Host='<host>' `
+  fcg-catalog-api
+```
+
+A API escuta na porta `8080` dentro do container. Configure também as demais variáveis necessárias para PostgreSQL, RabbitMQ e JWT conforme a tabela acima. Para dependências executadas no host com Docker Desktop, use `host.docker.internal` como hostname.
+
 ### 7. Health
 
 Acesse [http://localhost:5080/health](http://localhost:5080/health). O endpoint é público e verifica apenas o host, sem validar PostgreSQL ou RabbitMQ.

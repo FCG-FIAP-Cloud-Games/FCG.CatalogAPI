@@ -1,0 +1,14 @@
+**/bin/
+**/obj/
+**/TestResults/
+.git/
+.vs/
+.idea/
+tests/
+.env
+.env.*
+appsettings.Local.json
+**/*.pem
+**/*.key
+**/*.pfx
+**/*.p12
