@@ -4,6 +4,7 @@
     <PackageReference Include="RabbitMQ.Client" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <ProjectReference Include="../FCG.Catalog.Application/FCG.Catalog.Application.csproj" />
     <ProjectReference Include="../FCG.Catalog.Domain/FCG.Catalog.Domain.csproj" />

@@ -13,4 +13,5 @@ public sealed class JwtPublicKeyOptions
 {
     public string Kid { get; init; } = string.Empty;
     public string PublicKeyPem { get; init; } = string.Empty;
+    public string PublicKeyPath { get; init; } = string.Empty;
 }

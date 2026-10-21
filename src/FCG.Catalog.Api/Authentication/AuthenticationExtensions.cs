@@ -19,15 +19,14 @@ public static class AuthenticationExtensions
         var keys = new Dictionary<string, SecurityKey>(StringComparer.Ordinal);
         foreach (var entry in jwt.PublicKeys)
         {
-            if (string.IsNullOrWhiteSpace(entry.Kid) || string.IsNullOrWhiteSpace(entry.PublicKeyPem)
-                || entry.PublicKeyPem.Contains("PRIVATE KEY", StringComparison.Ordinal)
-                || keys.ContainsKey(entry.Kid))
+            if (string.IsNullOrWhiteSpace(entry.Kid) || keys.ContainsKey(entry.Kid))
             {
                 throw new InvalidOperationException("Jwt:PublicKeys exige kid único e não vazio e somente chave pública RSA PEM.");
             }
 
+            var pem = ReadPublicKey(entry);
             using var rsa = RSA.Create();
-            rsa.ImportFromPem(entry.PublicKeyPem);
+            rsa.ImportFromPem(pem);
             keys.Add(entry.Kid, new RsaSecurityKey(rsa.ExportParameters(false)) { KeyId = entry.Kid });
         }
 
@@ -71,5 +70,35 @@ public static class AuthenticationExtensions
                 // Apenas configuração local confiável: nenhum Authority, discovery ou fallback.
             });
         return services;
+    }
+
+    private static string ReadPublicKey(JwtPublicKeyOptions entry)
+    {
+        var hasPem = !string.IsNullOrWhiteSpace(entry.PublicKeyPem);
+        var hasPath = !string.IsNullOrWhiteSpace(entry.PublicKeyPath);
+        if (hasPem == hasPath)
+            throw new InvalidOperationException(
+                "Jwt:PublicKeys exige exatamente uma origem por chave: PublicKeyPem ou PublicKeyPath.");
+
+        var pem = entry.PublicKeyPem;
+        if (hasPath)
+        {
+            if (!Path.IsPathFullyQualified(entry.PublicKeyPath))
+                throw new InvalidOperationException("Jwt:PublicKeys:PublicKeyPath deve ser um caminho absoluto.");
+            try
+            {
+                pem = File.ReadAllText(entry.PublicKeyPath);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                throw new InvalidOperationException(
+                    $"Não foi possível ler a chave pública configurada para o kid '{entry.Kid}'. " +
+                    "Verifique o volume público e a permissão de leitura antes de iniciar o Catalog.", exception);
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(pem) || pem.Contains("PRIVATE KEY", StringComparison.Ordinal))
+            throw new InvalidOperationException("Jwt:PublicKeys aceita somente chave pública RSA PEM, nunca chave privada.");
+        return pem;
     }
 }

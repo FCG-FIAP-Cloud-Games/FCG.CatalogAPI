@@ -14,6 +14,9 @@ public sealed class JwtConfigurationTests
     [InlineData("empty-pem")]
     [InlineData("private-key")]
     [InlineData("invalid-pem")]
+    [InlineData("both-origins")]
+    [InlineData("relative-path")]
+    [InlineData("missing-file")]
     [InlineData("negative-skew")]
     [InlineData("empty-issuer")]
     [InlineData("empty-audience")]
@@ -35,6 +38,15 @@ public sealed class JwtConfigurationTests
             case "empty-pem": values["Jwt:PublicKeys:0:PublicKeyPem"] = ""; break;
             case "private-key": values["Jwt:PublicKeys:0:PublicKeyPem"] = rsa.ExportPkcs8PrivateKeyPem(); break;
             case "invalid-pem": values["Jwt:PublicKeys:0:PublicKeyPem"] = "invalid"; break;
+            case "both-origins": values["Jwt:PublicKeys:0:PublicKeyPath"] = Path.GetFullPath("public.pem"); break;
+            case "relative-path":
+                values["Jwt:PublicKeys:0:PublicKeyPem"] = null;
+                values["Jwt:PublicKeys:0:PublicKeyPath"] = "public.pem";
+                break;
+            case "missing-file":
+                values["Jwt:PublicKeys:0:PublicKeyPem"] = null;
+                values["Jwt:PublicKeys:0:PublicKeyPath"] = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".pem");
+                break;
             case "negative-skew": values["Jwt:ClockSkewSeconds"] = "-1"; break;
             case "empty-issuer": values["Jwt:Issuer"] = ""; break;
             case "empty-audience": values["Jwt:Audience"] = ""; break;
@@ -45,5 +57,34 @@ public sealed class JwtConfigurationTests
             Assert.Throws<ArgumentException>(() => services.AddCatalogAuthentication(configuration));
         else
             Assert.Throws<InvalidOperationException>(() => services.AddCatalogAuthentication(configuration));
+    }
+    [Theory]
+    [InlineData("private")]
+    [InlineData("empty")]
+    [InlineData("invalid")]
+    public void Invalid_public_key_file_fails_without_fallback(string scenario)
+    {
+        using var rsa = RSA.Create(2048);
+        var filename = Path.Combine(Path.GetTempPath(), "catalog-jwt-" + Guid.NewGuid() + ".pem");
+        try
+        {
+            File.WriteAllText(filename, scenario switch
+            {
+                "private" => rsa.ExportPkcs8PrivateKeyPem(),
+                "empty" => "",
+                _ => "not-a-public-key"
+            });
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Jwt:PublicKeys:0:Kid"] = "users-key-1",
+                ["Jwt:PublicKeys:0:PublicKeyPath"] = filename
+            }).Build();
+            var services = new ServiceCollection();
+            if (scenario == "invalid")
+                Assert.Throws<ArgumentException>(() => services.AddCatalogAuthentication(configuration));
+            else
+                Assert.Throws<InvalidOperationException>(() => services.AddCatalogAuthentication(configuration));
+        }
+        finally { File.Delete(filename); }
     }
 }

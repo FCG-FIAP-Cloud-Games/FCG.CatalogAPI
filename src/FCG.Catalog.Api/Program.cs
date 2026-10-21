@@ -3,8 +3,10 @@ using FCG.Catalog.Api.OpenApi;
 using FCG.Catalog.Infrastructure.IoC;
 using FCG.Catalog.Api.IoC;
 using FCG.Catalog.Api.Authentication;
+using FCG.Catalog.Api.Initialization;
 
 var builder = WebApplication.CreateBuilder(args);
+LocalDemonstrationExtensions.IsEnabled(builder.Configuration, builder.Environment);
 
 builder.Services.AddControllers();
 builder.Services.AddCatalogApplication();
@@ -44,6 +46,9 @@ builder.Services.AddCatalogAuthentication(builder.Configuration);
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
+// O host e os workers só iniciam depois de o schema estar pronto.
+await app.PrepareLocalDemonstrationAsync();
 
 app.UseMiddleware<FCG.Catalog.Api.CorrelationMiddleware>();
 app.UseExceptionHandler();

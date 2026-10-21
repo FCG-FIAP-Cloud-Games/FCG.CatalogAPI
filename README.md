@@ -59,7 +59,9 @@ Forneça as configurações por variáveis de ambiente. O `appsettings.Developme
 | `Jwt__Audience` | Audiência aceita; `FIAP.CloudGames.Api`. |
 | `Jwt__ClockSkewSeconds` | Tolerância de horário, não negativa; `30` segundos. |
 | `Jwt__PublicKeys__0__Kid` | Identificador da chave pública, correspondente ao `kid` do token. |
-| `Jwt__PublicKeys__0__PublicKeyPem` | Conteúdo PEM da chave pública RSA; coleção de chaves vazia por padrão. |
+| `Jwt__PublicKeys__0__PublicKeyPem` | Conteúdo PEM da chave pública RSA; alternativa ao arquivo. |
+| `Jwt__PublicKeys__0__PublicKeyPath` | Caminho absoluto do arquivo PEM público, lido uma vez no startup; alternativa ao conteúdo inline. |
+| `DemonstracaoLocal__Habilitada` | `false` por padrão. Em `Development`, `true` aplica as migrations antes de abrir HTTP e iniciar os workers. |
 | `ASPNETCORE_ENVIRONMENT` | Use `Development` para habilitar Swagger. |
 
 ```powershell
@@ -76,6 +78,8 @@ $env:Jwt__Audience = '<audience>'
 $env:Jwt__PublicKeys__0__Kid = '<kid>'
 $env:Jwt__PublicKeys__0__PublicKeyPem = Get-Content -Raw '<caminho-public-key.pem>'
 ```
+
+Configure exatamente uma origem por chave: `PublicKeyPem` ou `PublicKeyPath`. No Compose integrado, use `Jwt__PublicKeys__0__PublicKeyPath=/data/jwt-publica/public.pem` e monte apenas o volume público compartilhado com Users, em modo somente leitura. O volume privado do Users não deve ser montado no Catalog. O Catalog deve iniciar depois de o Users estar saudável; arquivo ausente ou inválido impede a inicialização, sem fallback.
 
 O PEM deve conter quebras de linha reais. Para mais chaves, use índices `1`, `2`, etc., com `Kid` único. Configure somente chaves públicas e reinicie a aplicação após alterar essa configuração. Não grave credenciais no repositório.
 
@@ -106,7 +110,9 @@ dotnet ef database update `
 dotnet ef migrations has-pending-model-changes --project src/FCG.Catalog.Infrastructure --startup-project src/FCG.Catalog.Api --context CatalogDbContext
 ```
 
-O manifesto local fornece `dotnet-ef` 8.0.28. A aplicação não aplica migrations automaticamente ao iniciar.
+O manifesto local fornece `dotnet-ef` 8.0.28. Por padrão, a aplicação não altera o schema ao iniciar. Para a demonstração integrada, configure `ASPNETCORE_ENVIRONMENT=Development` e `DemonstracaoLocal__Habilitada=true`: o Catalog aplica suas migrations existentes antes de iniciar HTTP, Outbox e o consumer. A infraestrutura deve criar previamente o banco e o usuário com permissão de DDL; não é necessário executar os comandos EF manualmente nesse modo.
+
+A aplicação usa um advisory lock de sessão do PostgreSQL para serializar suas migrations em inicializações concorrentes. Ao reiniciar, somente migrations pendentes são aplicadas e dados existentes são preservados. Falhas de conexão, de permissão ou de migration impedem o startup. A flag inválida ou habilitada fora de `Development` é rejeitada; para produção, mantenha o processo de migração controlado separadamente.
 
 ### 6. Executar a API
 
@@ -144,7 +150,7 @@ Acesse [http://localhost:5080/health](http://localhost:5080/health). O endpoint 
 
 Acesse [http://localhost:5080/swagger/index.html](http://localhost:5080/swagger/index.html) para consultar os contratos e experimentar os endpoints públicos. A especificação está em `/swagger/v1/swagger.json`.
 
-O Swagger é habilitado somente em `Development`. Para consumir rotas protegidas, envie `Authorization: Bearer <token>` em um cliente HTTP, conforme a seção de autenticação.
+O Swagger é habilitado somente em `Development`. O botão **Authorize** aceita o JWT emitido pelo UsersAPI, sem digitar o prefixo `Bearer`; o Swagger monta o header nas operações protegidas. As rotas públicas continuam sem requisito de autenticação. Em outros clientes HTTP, envie `Authorization: Bearer <token>`, conforme a seção de autenticação.
 
 ## Problemas comuns
 
