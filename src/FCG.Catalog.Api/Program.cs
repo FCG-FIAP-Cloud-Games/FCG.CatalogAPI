@@ -1,3 +1,5 @@
+using Microsoft.OpenApi.Models;
+using FCG.Catalog.Api.OpenApi;
 using FCG.Catalog.Infrastructure.IoC;
 using FCG.Catalog.Api.IoC;
 using FCG.Catalog.Api.Authentication;
@@ -8,7 +10,34 @@ builder.Services.AddControllers();
 builder.Services.AddCatalogApplication();
 builder.Services.AddCatalogInfrastructure(builder.Configuration);
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.OperationFilter<BearerSecurityOperationFilter>();
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Informe o accessToken gerado pela UsersAPI."
+    });
+
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 builder.Services.AddProblemDetails();
 builder.Services.AddHealthChecks();
 builder.Services.AddCatalogAuthentication(builder.Configuration);
