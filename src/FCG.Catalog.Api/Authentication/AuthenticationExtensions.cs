@@ -16,6 +16,19 @@ public static class AuthenticationExtensions
             throw new InvalidOperationException("Configuração Jwt inválida: informe Issuer, Audience e ClockSkewSeconds não negativo.");
         }
 
+        var remoteKeys = !string.IsNullOrWhiteSpace(jwt.JwksUri);
+        if (remoteKeys)
+        {
+            JwksKeyCache.ValidateOptions(jwt);
+            services.AddHttpClient(JwksKeyCache.ClientName, client => client.Timeout = TimeSpan.FromSeconds(5))
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+            services.AddSingleton(provider => new JwksKeyCache(jwt,
+                provider.GetRequiredService<IHttpClientFactory>(), provider.GetRequiredService<ILogger<JwksKeyCache>>(),
+                TimeProvider.System, provider.GetRequiredService<IHostEnvironment>().IsDevelopment()));
+            services.AddHostedService(provider => provider.GetRequiredService<JwksKeyCache>());
+            services.AddHealthChecks().AddCheck<JwksHealthCheck>("jwks", tags: ["ready"]);
+        }
+
         var keys = new Dictionary<string, SecurityKey>(StringComparer.Ordinal);
         foreach (var entry in jwt.PublicKeys)
         {
@@ -67,8 +80,14 @@ public static class AuthenticationExtensions
                         return Task.CompletedTask;
                     }
                 };
-                // Apenas configuração local confiável: nenhum Authority, discovery ou fallback.
+                // Chaves locais ou JWKS configurado explicitamente; a validação do JWT permanece local.
             });
+        if (remoteKeys)
+        {
+            services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+                .Configure<JwksKeyCache>((options, cache) =>
+                    options.TokenValidationParameters.IssuerSigningKeyResolver = (_, _, kid, _) => cache.Resolve(kid));
+        }
         return services;
     }
 

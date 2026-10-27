@@ -306,3 +306,7 @@ Os testes de pagamento criam bancos e filas exclusivos, verificam rollback, rede
 ```
 
 O script compila o contrato e publisher existentes em um executável temporário com MassTransit 8.3.6 e publica no exchange oficial do vhost de testes. O teste captura e valida o envelope real, o commit e o ACK. Esse teste isola o publisher; não executa o fluxo HTTP/banco/Outbox completo do Payments. Alternativamente, `PAYMENTS_TEST_PUBLISHER` pode apontar para esse executável DLL para incluir a interoperabilidade em `dotnet test`.
+
+## Chaves remotas por JWKS
+
+Configure `Jwt:JwksUri` para obter as chaves públicas do Users. Nesse modo, deixe `Jwt:PublicKeys` vazio. O serviço faz atualização em segundo plano, cache com validade limitada e validação local de assinatura, emissor, audiência e expiração. `/health` aguarda chaves válidas e `/health/live` permanece independente desse cache. URLs HTTP são aceitas somente em Development. O modo PEM anterior permanece disponível. A imagem Kubernetes desta alteração é Catalog 1.0.3, publicada no Docker Hub em 27/10/2026.
