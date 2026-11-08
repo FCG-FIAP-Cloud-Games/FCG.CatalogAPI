@@ -15,6 +15,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
     options.OperationFilter<BearerSecurityOperationFilter>();
+    options.OperationFilter<PedidoIdempotencyOperationFilter>();
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -56,8 +57,14 @@ app.UseStatusCodePages();
 
 if (app.Environment.IsDevelopment())
 {
+    app.UseStaticFiles();
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(options =>
+    {
+        options.InjectJavascript("./pedido-intencao.js");
+        options.ConfigObject.Plugins = ["PedidoIntencaoPlugin"];
+        options.UseRequestInterceptor("function (request) { return window.PedidoIntencao.intercept(request); }");
+    });
 }
 
 app.UseAuthentication();
