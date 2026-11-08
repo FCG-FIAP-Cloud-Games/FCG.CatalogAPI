@@ -659,8 +659,3 @@ O DNS `usersapi` da URL JWKS é resolvido dentro do namespace; o port-forward se
 
 Na pasta do Compose utilizado, `docker compose ps -a` e `docker compose logs --tail 100 catalogapi usersapi paymentsapi` ajudam no diagnóstico. No container avulso use `docker logs --tail 100 fcg-catalog-local`; em .NET acompanhe o terminal da API. Correlacione `OrderId`, `EventId` e `CorrelationId`, sem divulgar tokens, senhas ou payloads completos.
 
-### Limites da validação e pendências
-
-As instruções foram confrontadas com o código local, Dockerfile, contratos, testes e configurações das duas composições e do Kubernetes. Os repositórios oficiais foram confirmados pelo GitHub; o Compose e o contrato de resposta do login Users também foram consultados no remoto.
-
-Não foi executado um teste funcional de login/compra, build, suíte de testes ou implantação nesta auditoria. A consulta ao Docker ativo encontrou restrição de acesso e sua aprovação automática não pôde ser concluída; não houve comprovação de conectividade dos serviços em execução. Permanecem pendentes a correção do script de interoperabilidade Payments descrita na seção 13, a confirmação das imagens efetivamente implantadas e a validação do fluxo completo em ambiente preparado. Credenciais administrativas devem ser obtidas com o responsável pelo ambiente; nenhum token ou senha real faz parte dos exemplos.
