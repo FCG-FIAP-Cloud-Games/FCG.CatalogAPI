@@ -10,24 +10,37 @@ public static class AuthenticationExtensions
         this IServiceCollection services, IConfiguration configuration)
     {
         var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new();
-
         if (string.IsNullOrWhiteSpace(jwt.Issuer) || string.IsNullOrWhiteSpace(jwt.Audience)
             || jwt.ClockSkewSeconds < 0)
         {
             throw new InvalidOperationException("Configuração Jwt inválida: informe Issuer, Audience e ClockSkewSeconds não negativo.");
         }
 
-        SecurityKey? publicKey = null;
-        if (!string.IsNullOrWhiteSpace(jwt.PublicKeyPem))
+        var remoteKeys = !string.IsNullOrWhiteSpace(jwt.JwksUri);
+        if (remoteKeys)
         {
-            if (jwt.PublicKeyPem.Contains("PRIVATE KEY", StringComparison.Ordinal))
+            JwksKeyCache.ValidateOptions(jwt);
+            services.AddHttpClient(JwksKeyCache.ClientName, client => client.Timeout = TimeSpan.FromSeconds(5))
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+            services.AddSingleton(provider => new JwksKeyCache(jwt,
+                provider.GetRequiredService<IHttpClientFactory>(), provider.GetRequiredService<ILogger<JwksKeyCache>>(),
+                TimeProvider.System, provider.GetRequiredService<IHostEnvironment>().IsDevelopment()));
+            services.AddHostedService(provider => provider.GetRequiredService<JwksKeyCache>());
+            services.AddHealthChecks().AddCheck<JwksHealthCheck>("jwks", tags: ["ready"]);
+        }
+
+        var keys = new Dictionary<string, SecurityKey>(StringComparer.Ordinal);
+        foreach (var entry in jwt.PublicKeys)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Kid) || keys.ContainsKey(entry.Kid))
             {
-                throw new InvalidOperationException("Jwt:PublicKeyPem aceita somente chave pública RSA.");
+                throw new InvalidOperationException("Jwt:PublicKeys exige kid único e não vazio e somente chave pública RSA PEM.");
             }
 
+            var pem = ReadPublicKey(entry);
             using var rsa = RSA.Create();
-            rsa.ImportFromPem(jwt.PublicKeyPem);
-            publicKey = new RsaSecurityKey(rsa.ExportParameters(includePrivateParameters: false));
+            rsa.ImportFromPem(pem);
+            keys.Add(entry.Kid, new RsaSecurityKey(rsa.ExportParameters(false)) { KeyId = entry.Kid });
         }
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -44,13 +57,67 @@ public static class AuthenticationExtensions
                     RequireExpirationTime = true,
                     RequireSignedTokens = true,
                     ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = publicKey,
+                    TryAllIssuerSigningKeys = false,
+                    IssuerSigningKeyResolver = (_, _, kid, _) =>
+                        !string.IsNullOrWhiteSpace(kid) && keys.TryGetValue(kid, out var key)
+                            ? [key] : Array.Empty<SecurityKey>(),
                     ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
+                    NameClaimType = "sub",
+                    RoleClaimType = "role",
                     ClockSkew = TimeSpan.FromSeconds(jwt.ClockSkewSeconds)
                 };
-                // Sem chave, nenhuma assinatura é aceita. Não há Authority nem consulta externa.
+                options.Events = new JwtBearerEvents
+                {
+                    OnTokenValidated = context =>
+                    {
+                        var subjects = context.Principal?.FindAll("sub").ToArray() ?? [];
+                        // O identificador externo é um Guid; não há consulta ou entidade de usuário.
+                        if (subjects.Length != 1 || !Guid.TryParse(subjects[0].Value, out var subject)
+                            || subject == Guid.Empty)
+                        {
+                            context.Fail("O token deve conter um único sub Guid válido e não vazio.");
+                        }
+                        return Task.CompletedTask;
+                    }
+                };
+                // Chaves locais ou JWKS configurado explicitamente; a validação do JWT permanece local.
             });
-
+        if (remoteKeys)
+        {
+            services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+                .Configure<JwksKeyCache>((options, cache) =>
+                    options.TokenValidationParameters.IssuerSigningKeyResolver = (_, _, kid, _) => cache.Resolve(kid));
+        }
         return services;
+    }
+
+    private static string ReadPublicKey(JwtPublicKeyOptions entry)
+    {
+        var hasPem = !string.IsNullOrWhiteSpace(entry.PublicKeyPem);
+        var hasPath = !string.IsNullOrWhiteSpace(entry.PublicKeyPath);
+        if (hasPem == hasPath)
+            throw new InvalidOperationException(
+                "Jwt:PublicKeys exige exatamente uma origem por chave: PublicKeyPem ou PublicKeyPath.");
+
+        var pem = entry.PublicKeyPem;
+        if (hasPath)
+        {
+            if (!Path.IsPathFullyQualified(entry.PublicKeyPath))
+                throw new InvalidOperationException("Jwt:PublicKeys:PublicKeyPath deve ser um caminho absoluto.");
+            try
+            {
+                pem = File.ReadAllText(entry.PublicKeyPath);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                throw new InvalidOperationException(
+                    $"Não foi possível ler a chave pública configurada para o kid '{entry.Kid}'. " +
+                    "Verifique o volume público e a permissão de leitura antes de iniciar o Catalog.", exception);
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(pem) || pem.Contains("PRIVATE KEY", StringComparison.Ordinal))
+            throw new InvalidOperationException("Jwt:PublicKeys aceita somente chave pública RSA PEM, nunca chave privada.");
+        return pem;
     }
 }

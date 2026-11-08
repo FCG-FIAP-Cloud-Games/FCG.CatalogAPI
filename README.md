@@ -1,129 +1,312 @@
 # FCG.CatalogAPI
 
-Fundação técnica do microsserviço CatalogAPI do FIAP Cloud Games, criada no **Card C13**, com .NET 8 e ASP.NET Core Controllers.
+Microsserviço do FIAP Cloud Games responsável pelo catálogo de jogos, pedidos de compra e biblioteca do usuário.
 
-## Responsabilidades e estado da extração
+## Responsabilidades
 
-Futuramente o serviço será responsável pelo catálogo de jogos, pedido de compra, biblioteca do usuário e concessão do jogo após pagamento. O processamento financeiro não é responsabilidade deste serviço.
+- Criar, consultar, listar e atualizar jogos.
+- Registrar pedidos com o preço atual do catálogo e idempotência.
+- Consultar os jogos adquiridos pelo usuário autenticado.
+- Publicar `OrderPlacedEvent` no RabbitMQ por meio de uma Outbox persistida no PostgreSQL.
+- Consumir `PaymentProcessedEvent` de forma idempotente, finalizar pedidos e conceder jogos aprovados.
 
-Neste card nenhum domínio foi extraído do monólito: não há entidades Jogo, Categoria ou CategoriaJogo, casos de uso, pedidos, biblioteca, persistência ou integrações. O host inicia de forma independente, sem monólito, UsersAPI, UsersDB ou qualquer banco/broker.
+## Stack
 
-Não há EF Core, PostgreSQL, migrations, RabbitMQ, Inbox/Outbox, Docker ou Kubernetes. As pastas vazias são preservadas por `.gitkeep`, sem abstrações artificiais.
+.NET 8, ASP.NET Core, EF Core 8 com Npgsql/PostgreSQL, RabbitMQ.Client, JWT RS256, Swagger e xUnit. As versões dos pacotes estão em `Directory.Packages.props`.
 
-## Estrutura
+## Execução local
 
-```text
-FCG.CatalogAPI/
-├── src/
-│   ├── FCG.Catalog.Api/
-│   │   ├── Authentication/
-│   │   ├── Controllers/
-│   │   ├── Program.cs
-│   │   ├── appsettings.json
-│   │   └── appsettings.Development.json
-│   ├── FCG.Catalog.Application/
-│   │   ├── Abstractions/Repositories/
-│   │   ├── Rules/
-│   │   └── UseCases/
-│   ├── FCG.Catalog.Domain/
-│   │   ├── Catalog/
-│   │   ├── Orders/
-│   │   └── Library/
-│   └── FCG.Catalog.Infrastructure/
-│       ├── Data/
-│       ├── Repositories/
-│       ├── Messaging/
-│       └── IoC/
-├── tests/
-│   ├── FCG.Catalog.UnitTests/
-│   └── FCG.Catalog.IntegrationTests/
-├── FCG.Catalog.sln
-├── Directory.Build.props
-├── Directory.Packages.props
-├── .gitignore
-└── README.md
+Execute os passos na ordem abaixo, na raiz do repositório e na mesma sessão PowerShell. Substitua os placeholders antes de executar os comandos.
+
+### 1. Pré-requisitos
+
+- .NET SDK 8 e runtime ASP.NET Core 8.
+- PostgreSQL acessível e banco exclusivo do CatalogAPI.
+- RabbitMQ acessível, com usuário e virtual host configurados, para publicar eventos.
+- Chave pública RSA e JWT emitido por um emissor confiável para acessar rotas protegidas.
+
+Docker é opcional para executar PostgreSQL e RabbitMQ.
+
+### 2. Dependências externas
+
+Antes de iniciar a API, disponibilize PostgreSQL e RabbitMQ. A conexão do banco é configurada por `ConnectionStrings__CatalogDatabase`; a conexão do broker, pelas variáveis `RabbitMq__*`.
+
+Se usar Docker local, confira os containers ativos:
+
+```powershell
+docker ps
 ```
 
-Cada diretório de projeto contém seu `.csproj`. Referências de produção:
+### 3. Variáveis de ambiente
 
-- Api → Application e Infrastructure.
-- Application → Domain.
-- Infrastructure → Application e Domain.
-- Domain → nenhuma referência de projeto ou pacote.
+Forneça as configurações por variáveis de ambiente. O `appsettings.Development.json` altera apenas os níveis de log.
 
-UnitTests referencia Application e Domain; IntegrationTests referencia Api. Todas as referências permanecem dentro desta solução, sem ciclos.
+| Variável | Uso / padrão versionado |
+| --- | --- |
+| `ConnectionStrings__CatalogDatabase` | Conexão PostgreSQL do catálogo; vazia por padrão. |
+| `RabbitMq__Host` | Host do broker; `localhost`. |
+| `RabbitMq__Port` | Porta AMQP; `5672`. |
+| `RabbitMq__VirtualHost` | Virtual host; `/`. |
+| `RabbitMq__Username` | Usuário do broker; vazio por padrão. |
+| `RabbitMq__Password` | Senha do broker; vazia por padrão. |
+| `RabbitMq__Exchange` | Exchange de publicação; `OrderPlacedEvent`. |
+| `RabbitMq__ConsumerEnabled` | Habilita o consumer de pagamentos; `true`. |
+| `RabbitMq__PaymentProcessedExchange` | Exchange fanout de pagamentos; `PaymentProcessedEvent`. |
+| `RabbitMq__PaymentProcessedQueue` | Fila própria do Catalog; `catalog-payment-processed`. |
+| `RabbitMq__PaymentProcessedErrorQueue` | Fila de erro; `catalog-payment-processed-error`. |
+| `Outbox__Enabled` | Habilita o publicador em segundo plano; `true`. |
+| `Jwt__Issuer` | Emissor aceito; `FIAP.CloudGames`. |
+| `Jwt__Audience` | Audiência aceita; `FIAP.CloudGames.Api`. |
+| `Jwt__ClockSkewSeconds` | Tolerância de horário, não negativa; `30` segundos. |
+| `Jwt__PublicKeys__0__Kid` | Identificador da chave pública, correspondente ao `kid` do token. |
+| `Jwt__PublicKeys__0__PublicKeyPem` | Conteúdo PEM da chave pública RSA; alternativa ao arquivo. |
+| `Jwt__PublicKeys__0__PublicKeyPath` | Caminho absoluto do arquivo PEM público, lido uma vez no startup; alternativa ao conteúdo inline. |
+| `DemonstracaoLocal__Habilitada` | `false` por padrão. Em `Development`, `true` aplica as migrations antes de abrir HTTP e iniciar os workers. |
+| `ASPNETCORE_ENVIRONMENT` | Use `Development` para habilitar Swagger. |
 
-## Executar e validar
+```powershell
+$env:ConnectionStrings__CatalogDatabase = 'Host=<host>;Port=<porta>;Database=<banco-catalogo>;Username=<usuario>;Password=<senha>'
+$env:RabbitMq__Host = '<host>'
+$env:RabbitMq__Port = '<porta>'
+$env:RabbitMq__VirtualHost = '<vhost>'
+$env:RabbitMq__Username = '<usuario>'
+$env:RabbitMq__Password = '<senha>'
+$env:RabbitMq__Exchange = 'OrderPlacedEvent'
+$env:Outbox__Enabled = 'true'
+$env:Jwt__Issuer = '<issuer>'
+$env:Jwt__Audience = '<audience>'
+$env:Jwt__PublicKeys__0__Kid = '<kid>'
+$env:Jwt__PublicKeys__0__PublicKeyPem = Get-Content -Raw '<caminho-public-key.pem>'
+```
 
-Pré-requisito: SDK .NET 8 ou posterior compatível, com runtime ASP.NET Core/.NET 8 instalado. Todos os projetos têm `TargetFramework=net8.0`; não é necessário instalar serviços externos.
+Configure exatamente uma origem por chave: `PublicKeyPem` ou `PublicKeyPath`. No Compose integrado, use `Jwt__PublicKeys__0__PublicKeyPath=/data/jwt-publica/public.pem` e monte apenas o volume público compartilhado com Users, em modo somente leitura. O volume privado do Users não deve ser montado no Catalog. O Catalog deve iniciar depois de o Users estar saudável; arquivo ausente ou inválido impede a inicialização, sem fallback.
 
-Na raiz do repositório:
+O PEM deve conter quebras de linha reais. Para mais chaves, use índices `1`, `2`, etc., com `Kid` único. Configure somente chaves públicas e reinicie a aplicação após alterar essa configuração. Não grave credenciais no repositório.
+
+### 4. Restore e build
 
 ```powershell
 dotnet restore
 dotnet build
-dotnet test
-
-$env:ASPNETCORE_ENVIRONMENT = "Development"
-dotnet run --project src/FCG.Catalog.Api --no-launch-profile --urls http://localhost:5080
 ```
 
-Em outro terminal:
+### 5. PostgreSQL e migrations
+
+O CatalogAPI usa banco próprio para catálogo, pedidos, aquisições, Outbox e Inbox. Configure `ConnectionStrings__CatalogDatabase` antes dos comandos EF. O usuário precisa de permissão para alterar o schema; se o banco ainda não existir, precisa também de `CREATEDB`, ou o banco deve ser criado previamente.
 
 ```powershell
-Invoke-WebRequest http://localhost:5080/health
+dotnet tool restore
+
+# Listar migrations
+dotnet ef migrations list --project src/FCG.Catalog.Infrastructure --startup-project src/FCG.Catalog.Api --context CatalogDbContext
+
+# Aplicar migrations
+dotnet ef database update `
+  --project src/FCG.Catalog.Infrastructure `
+  --startup-project src/FCG.Catalog.Api `
+  --context CatalogDbContext
+
+# Verificar divergências entre o modelo e a última migration
+dotnet ef migrations has-pending-model-changes --project src/FCG.Catalog.Infrastructure --startup-project src/FCG.Catalog.Api --context CatalogDbContext
 ```
 
-`GET /health` é público e retorna HTTP 200 com `Healthy`. É um health check do host; não verifica dependências externas neste card.
+O manifesto local fornece `dotnet-ef` 8.0.28. Por padrão, a aplicação não altera o schema ao iniciar. Para a demonstração integrada, configure `ASPNETCORE_ENVIRONMENT=Development` e `DemonstracaoLocal__Habilitada=true`: o Catalog aplica suas migrations existentes antes de iniciar HTTP, Outbox e o consumer. A infraestrutura deve criar previamente o banco e o usuário com permissão de DDL; não é necessário executar os comandos EF manualmente nesse modo.
 
-Swagger UI: `http://localhost:5080/swagger/index.html`. Documento OpenAPI: `http://localhost:5080/swagger/v1/swagger.json`. Ambos disponíveis somente em Development. Sem controllers de negócio neste card, o documento inicialmente não contém operações. O endpoint de health é mapeado via Health Checks.
+A aplicação usa um advisory lock de sessão do PostgreSQL para serializar suas migrations em inicializações concorrentes. Ao reiniciar, somente migrations pendentes são aplicadas e dados existentes são preservados. Falhas de conexão, de permissão ou de migration impedem o startup. A flag inválida ou habilitada fora de `Development` é rejeitada; para produção, mantenha o processo de migração controlado separadamente.
 
-O pipeline inclui Problem Details, tratamento de exceções, páginas de status, autenticação e autorização. Futuros controllers protegidos devem usar `[Authorize]`.
+### 6. Executar a API
 
-Testes de integração hospedam a API e verificam health sem chave em Development/Production, Swagger por ambiente, Problem Details e autenticação local básica em um controller exclusivo dos testes. As chaves dos testes são geradas em memória e descartadas. UnitTests está preparado, mas sem testes até existirem regras de negócio.
+```powershell
+$env:ASPNETCORE_ENVIRONMENT = 'Development'
 
-## Configuração por ambiente
+dotnet run `
+  --project src/FCG.Catalog.Api `
+  --no-launch-profile `
+  --urls 'http://localhost:5080'
+```
 
-O host usa a configuração padrão do ASP.NET Core: `appsettings.json`, `appsettings.{Environment}.json`, variáveis de ambiente e argumentos da linha de comando. Variáveis usam `__` para separar níveis e sobrescrevem os arquivos JSON, por exemplo `Jwt__Issuer`, `Jwt__Audience`, `Jwt__ClockSkewSeconds` e `Jwt__PublicKeyPem`. `ASPNETCORE_ENVIRONMENT` seleciona o ambiente; na ausência de configuração o padrão é Production. `ASPNETCORE_URLS` também pode definir os endereços do host.
+A porta **5080 é apenas um exemplo** escolhido com `--urls` e pode ser substituída por outra porta livre. O repositório não possui `launchSettings.json` nem fixa uma URL de escuta. Se alterar a porta, ajuste também as URLs abaixo.
 
-`appsettings.Development.json` ajusta somente os logs. Não contém credenciais. O `.gitignore` ignora arquivos usuais de chave e configurações locais; `appsettings.Local.json` não é carregado automaticamente.
+### Executar em container
 
-## JWT: base do C13
+Na raiz do repositório, crie a imagem e inicie o container:
 
-Configuração padrão:
+```powershell
+docker build -t fcg-catalog-api .
+docker run --rm -p 5080:8080 `
+  -e ASPNETCORE_ENVIRONMENT=Development `
+  -e ConnectionStrings__CatalogDatabase='<connection-string>' `
+  -e RabbitMq__Host='<host>' `
+  fcg-catalog-api
+```
+
+A API escuta na porta `8080` dentro do container. Configure também as demais variáveis necessárias para PostgreSQL, RabbitMQ e JWT conforme a tabela acima. Para dependências executadas no host com Docker Desktop, use `host.docker.internal` como hostname.
+
+### 7. Health
+
+Acesse [http://localhost:5080/health](http://localhost:5080/health). O endpoint é público e verifica apenas o host, sem validar PostgreSQL ou RabbitMQ.
+
+### 8. Swagger
+
+Acesse [http://localhost:5080/swagger/index.html](http://localhost:5080/swagger/index.html) para consultar os contratos e experimentar os endpoints públicos. A especificação está em `/swagger/v1/swagger.json`.
+
+O Swagger é habilitado somente em `Development`. O botão **Authorize** aceita o JWT emitido pelo UsersAPI, sem digitar o prefixo `Bearer`; o Swagger monta o header nas operações protegidas. As rotas públicas continuam sem requisito de autenticação. Em outros clientes HTTP, envie `Authorization: Bearer <token>`, conforme a seção de autenticação.
+
+## Problemas comuns
+
+| Problema | O que verificar |
+| --- | --- |
+| `docker ps` falha com `dockerDesktopLinuxEngine` | Se estiver usando Docker, confira se o Docker Desktop e o engine Linux estão iniciados. |
+| Falha de conexão com PostgreSQL | Valide `ConnectionStrings__CatalogDatabase` e a disponibilidade do servidor. |
+| Outbox não consegue publicar | Valide `RabbitMq__*`, a disponibilidade do broker e `Outbox__Enabled=true`. Confira também se há uma fila vinculada ao exchange. |
+| Swagger não aparece | Confirme `ASPNETCORE_ENVIRONMENT=Development` na sessão que inicia a API e a porta usada em `--urls`. |
+
+## RabbitMQ e Outbox
+
+```text
+CatalogAPI → Outbox → OrderPlacedEvent → RabbitMQ
+```
+
+Configure a conexão pelas variáveis `RabbitMq__*`. O publicador declara o exchange configurado como `fanout`, durável e sem exclusão automática. O usuário do broker precisa de acesso ao virtual host e permissão para declarar o exchange e publicar.
+
+Para `OrderPlacedEvent`, provisione a fila do destinatário e seu binding ao exchange para receber os eventos. Sem rota disponível ou com falha no broker, as mensagens continuam pendentes para novas tentativas.
+
+Pedido e evento são gravados juntos no banco; um serviço em segundo plano publica a Outbox. A entrega pode se repetir, portanto consumidores devem deduplicar por `EventId`. Com `Outbox__Enabled=false`, a publicação fica desativada, mas novos pedidos continuam gravando eventos na Outbox.
+
+## Consumo de pagamentos
+
+```text
+PaymentProcessedEvent → CatalogAPI → Pedido Paid/Rejected → Biblioteca quando Approved
+```
+
+O consumer usa RabbitMQ.Client, declara exchange fanout e filas duráveis, sem exclusão automática, e consome com prefetch 1 e ACK manual. A fila do Catalog é independente de qualquer fila de Notifications. `RabbitMq__ConsumerEnabled=false` desativa apenas esse consumer. A conexão usa as mesmas opções `RabbitMq__Host/Port/VirtualHost/Username/Password` da Outbox. Falhas no broker provocam reconexão a cada 2 segundos sem impedir o startup HTTP.
+
+O transporte aceito é `application/vnd.masstransit+json`: o adapter da Infrastructure extrai `message` do envelope MassTransit. Domain/Application não conhecem o envelope. `amount` aceita string decimal invariável (como `"99.90"`) ou número JSON decimal, sem `double` nem arredondamento. Content-Type desconhecido, envelope incompleto e contratos inválidos são permanentes.
+
+A idempotência usa `message.eventId` e o consumer estável `Catalog.PaymentProcessedEvent` na tabela `inbox_messages`, com índice único por consumer/evento. O `MessageId` AMQP não substitui o EventId. A correlação de negócio vem de `message.correlationId`.
+
+O processamento abre uma transação e adquire o mesmo advisory transaction lock de criação de pedidos, por usuário/jogo. Reconsulta Inbox, pedido e posse após o lock; compara usuário, jogo, preço contratado e moeda persistidos no pedido. A moeda deve ter três letras ASCII maiúsculas e coincidir exatamente com o pedido; não há conversão cambial ou consulta ao preço atual para validar o pagamento.
+
+`Approved` grava Paid, aquisição com PedidoId e Inbox em um único commit. `Rejected` grava Rejected e Inbox sem conceder jogo. Estados terminais compatíveis preservam UpdatedAt; resultados contraditórios vão para erro. Aquisições históricas válidas são preservadas; vínculos inconsistentes de PedidoId são rejeitados.
+
+O ACK de sucesso ocorre após commit. Falhas permanentes são transferidas diretamente para `catalog-payment-processed-error`. Falhas de infraestrutura têm três tentativas totais, com esperas assíncronas de 200 e 400 ms. O header `x-catalog-payment-attempt` começa em 1 quando ausente e é incrementado na republicação persistente para a própria fila. `x-catalog-payment-error` registra apenas o código/tipo técnico.
+
+Retry e fila de erro preservam os bytes originais, MessageId, CorrelationId, ContentType e headers, sem gerar EventId. O consumer confirma a publicação com `mandatory` e publisher confirms antes de ACK da entrega transferida. Se a transferência falhar, a entrega fica sem ACK e a conexão é recriada. Quedas entre publicação e ACK podem duplicar entregas; a Inbox protege os efeitos de negócio. Indisponibilidade do próprio broker mantém a entrega pendente até reconexão.
+
+Logs incluem EventId, CorrelationId, PaymentId, OrderId, Status, tentativa e resultado, sem payload completo ou credenciais.
+
+## Autenticação
+
+Envie `Authorization: Bearer <token>` nas rotas protegidas. O CatalogAPI não emite tokens: obtenha um JWT do emissor correspondente à configuração.
+
+- A validação é local, com RS256, chave pública selecionada pelo `kid`, issuer, audience e validade do token. `exp` é obrigatório.
+- A identidade vem de um único claim `sub`, que deve ser um GUID válido e não vazio.
+- A autorização usa o claim `role`; `Administrador` diferencia maiúsculas e minúsculas.
+- Não existe chamada síncrona ao UsersAPI para validar o token.
+- Sem chaves públicas configuradas, o host inicia, mas nenhum JWT é aceito. Chaves incompletas, privadas, inválidas ou com `Kid` duplicado impedem a inicialização.
+
+Rotas protegidas retornam `401` sem token válido e `403` quando o usuário não tem a permissão necessária.
+
+## Endpoints
+
+IDs nas rotas são GUIDs. Nos exemplos HTTP, use a URL definida ao iniciar a API.
+
+### Jogos
+
+| Método | Rota | Autenticação | Descrição |
+| --- | --- | --- | --- |
+| GET | `/api/v1/jogos` | Pública | Listar jogos com paginação. |
+| GET | `/api/v1/jogos/{id}` | Pública | Consultar jogo por ID. |
+| POST | `/api/v1/jogos` | JWT, role `Administrador` | Criar jogo. |
+| PUT | `/api/v1/jogos/{id}` | JWT, role `Administrador` | Atualizar jogo. |
+
+Paginação: `?pagina=1&tamanhoPagina=20`, com páginas a partir de 1 e tamanho entre 1 e 100.
+
+Corpo JSON de criação e atualização:
 
 ```json
-"Jwt": {
-  "Issuer": "FIAP.CloudGames",
-  "Audience": "FIAP.CloudGames.Api",
-  "ClockSkewSeconds": 30,
-  "PublicKeyPem": ""
-}
+{ "titulo": "Jogo exemplo", "descricao": "Descrição", "faixaEtaria": "12", "preco": 49.90 }
 ```
 
-`AddAuthentication`/`AddJwtBearer` estão preparados para **RS256**, com validação de assinatura, emissor, audiência, expiração e tolerância de 30 segundos. O algoritmo fica restrito a RS256 no código; não há segredo simétrico, chave privada, Authority, discovery ou chamada HTTP ao UsersAPI.
+Título obrigatório, com até 150 caracteres, e preço não negativo. Descrição e faixa etária são opcionais; os limites de armazenamento são 500 e 2 caracteres, respectivamente.
 
-Uma única chave pública RSA em formato PEM pode ser fornecida externamente por `Jwt__PublicKeyPem`, com quebras de linha reais (não a sequência literal `\n`). Por exemplo, quando houver uma chave pública distribuída fora deste repositório:
+### Pedidos
+
+| Método | Rota | Autenticação | Descrição |
+| --- | --- | --- | --- |
+| POST | `/api/v1/pedidos` | JWT | Criar ou recuperar pedido pela chave de idempotência. |
+| GET | `/api/v1/pedidos/{id}` | JWT, titular ou `Administrador` | Consultar pedido. |
+
+### Biblioteca
+
+| Método | Rota | Autenticação | Descrição |
+| --- | --- | --- | --- |
+| GET | `/api/v1/biblioteca` | JWT | Listar a própria biblioteca. |
+
+### Health
+
+| Método | Rota | Autenticação | Descrição |
+| --- | --- | --- | --- |
+| GET | `/health` | Pública | Verificar se o host responde. |
+
+## Fluxo de pedidos
+
+```text
+POST /api/v1/pedidos → preço obtido pelo CatalogAPI → Pedido PendingPayment
+                    → Outbox → OrderPlacedEvent
+```
+
+Exemplo de requisição:
+
+```http
+POST /api/v1/pedidos
+Authorization: Bearer <token>
+Idempotency-Key: <uuid-nao-vazio>
+Content-Type: application/json
+
+{ "jogoId": "<guid-do-jogo>" }
+```
+
+O usuário vem do `sub`; o preço vem do catálogo e a moeda é `BRL`. A criação retorna `202` com `Location` para consultar o pedido.
+
+- `Idempotency-Key` é obrigatório e deve conter um único UUID não vazio.
+- Repetir a chave para o mesmo usuário e jogo recupera o pedido original: `202` se pendente ou `200` se finalizado. Usá-la para outro jogo retorna `409`.
+- Uma nova chave para jogo já adquirido ou com pedido pendente retorna `409`, sem criar outro pedido. Jogo inativo retorna `409`; inexistente, `404`.
+- Criar um pedido não concede o jogo imediatamente. O consumer de pagamento finaliza o pedido e concede o jogo somente quando recebe `Approved`.
+
+## Biblioteca do usuário
+
+`GET /api/v1/biblioteca` usa exclusivamente o `sub` do JWT e retorna apenas a biblioteca do próprio usuário, inclusive para administradores. A posse é representada por `Aquisicao` no banco do catálogo.
+
+A resposta contém `gameId`, `title` e `acquiredAt`, ou uma lista vazia. Não há paginação nem endpoint público de concessão de jogos.
+
+## Testes
 
 ```powershell
-$env:Jwt__PublicKeyPem = Get-Content -Raw "C:\config\catalog-public.pem"
+dotnet test
 ```
 
-Reinicie o host após alterar a chave. Uma chave fornecida inválida ou privada causa erro na inicialização. Nenhuma chave real acompanha este repositório.
+A solução inclui testes unitários e de integração. Quando `ConnectionStrings__CatalogDatabase` está definida, testes de leitura verificam o schema desse banco; mantenha suas migrations aplicadas.
 
-**Sem chave pública, o scaffold inicia normalmente e health/Swagger continuam acessíveis; tokens não são aceitos em endpoints protegidos.** Com uma chave pública fornecida, a base já valida assinaturas RS256 localmente. O UsersAPI será o único emissor. A estratégia completa de validação efetiva do ambiente, distribuição/rotação, múltiplas chaves e seleção por `kid` permanece no **C14**; nada disso foi implementado aqui.
+### Testes de integração externos
 
-## Dependências
+Alguns testes usam PostgreSQL e RabbitMQ reais. `CATALOG_TEST_CONNECTION` e `RABBITMQ_TEST_CONNECTION` são exclusivas dos testes de integração e não configuram a execução normal da API. Configure somente ambientes de desenvolvimento descartáveis:
 
-Versões centralizadas em `Directory.Packages.props`:
+| Variável | Configuração |
+| --- | --- |
+| `CATALOG_TEST_CONNECTION` | Connection string PostgreSQL de manutenção; usuário com permissão para criar e remover bancos de teste. |
+| `RABBITMQ_TEST_CONNECTION` | URI `amqp://<usuario>:<senha>@<host>:<porta>/<vhost>` de um virtual host exclusivo, vazio e descartável. Também exige `CATALOG_TEST_CONNECTION`. |
 
-| Pacote | Versão | Uso |
-| --- | --- | --- |
-| Microsoft.AspNetCore.Authentication.JwtBearer | 8.0.28 | JWT local |
-| Swashbuckle.AspNetCore | 6.9.0 | Swagger/OpenAPI |
-| Microsoft.AspNetCore.Mvc.Testing | 8.0.28 | Host de integração |
-| Microsoft.NET.Test.Sdk | 17.11.1 | Execução dos testes |
-| xunit | 2.9.3 | Framework de testes |
-| xunit.runner.visualstudio | 2.8.2 | Descoberta e execução xUnit |
+Após configurar essas variáveis, execute `dotnet test`. Sem as variáveis necessárias, os respectivos testes externos são ignorados.
 
-Controllers, Health Checks e Problem Details usam o framework compartilhado ASP.NET Core, sem pacotes adicionais. `Directory.Build.props` concentra net8.0, nullable e implicit usings.
+Os testes de pagamento criam bancos e filas exclusivos, verificam rollback, redelivery, ACK, retry, fila de erro e concorrência com o POST. Para exercitar também o publisher real do Payments, sem editar seus fontes nem adicionar MassTransit ao Catalog:
+
+```powershell
+./tests/Invoke-PaymentsInterop.ps1 -PaymentsRepository '../FCG.PaymentsAPI'
+```
+
+O script compila o contrato e publisher existentes em um executável temporário com MassTransit 8.3.6 e publica no exchange oficial do vhost de testes. O teste captura e valida o envelope real, o commit e o ACK. Esse teste isola o publisher; não executa o fluxo HTTP/banco/Outbox completo do Payments. Alternativamente, `PAYMENTS_TEST_PUBLISHER` pode apontar para esse executável DLL para incluir a interoperabilidade em `dotnet test`.
+
+## Chaves remotas por JWKS
+
+Configure `Jwt:JwksUri` para obter as chaves públicas do Users. Nesse modo, deixe `Jwt:PublicKeys` vazio. O serviço faz atualização em segundo plano, cache com validade limitada e validação local de assinatura, emissor, audiência e expiração. `/health` aguarda chaves válidas e `/health/live` permanece independente desse cache. URLs HTTP são aceitas somente em Development. O modo PEM anterior permanece disponível. A imagem Kubernetes desta alteração é Catalog 1.0.3, publicada no Docker Hub em 27/10/2026.
