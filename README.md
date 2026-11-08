@@ -47,10 +47,10 @@ Confirme SDK `8.0.x` e, para Docker, as seções Client e Server. Docker não é
 
 ## 4. Clonagem e instalação
 
-Na pasta onde deseja guardar os projetos, execute (o endereço abaixo corresponde ao remoto desta cópia):
+Na pasta onde deseja guardar os projetos, clone o repositório oficial (o endereço antigo `gapima/FCG.CatalogAPI` redireciona para esta organização):
 
 ```powershell
-git clone https://github.com/gapima/FCG.CatalogAPI.git
+git clone https://github.com/FCG-FIAP-Cloud-Games/FCG.CatalogAPI.git
 Set-Location FCG.CatalogAPI
 Test-Path ./FCG.Catalog.sln
 dotnet restore ./FCG.Catalog.sln
@@ -58,6 +58,8 @@ dotnet build ./FCG.Catalog.sln --no-restore
 ```
 
 `Test-Path` deve retornar `True`; restore e build devem terminar sem erros. Se já clonou, entre na raiz que contém `FCG.Catalog.sln`. Os comandos seguintes usam essa raiz, salvo indicação explícita. O repositório oficial de autenticação é [FCG.UsersAPI](https://github.com/FCG-FIAP-Cloud-Games/FCG.UsersAPI).
+
+Para uma primeira execução do fluxo completo, prefira a composição integrada: ela provisiona as dependências e inicia as APIs. A execução avulsa pressupõe PostgreSQL/RabbitMQ já acessíveis e Users preparado; não instala esses serviços.
 
 Escolha um modo: container avulso com dependências existentes (seção 6), host .NET (seção 7), ou composição integrada (seção 6). Não execute instâncias diferentes na mesma porta.
 
@@ -118,7 +120,7 @@ $env:Jwt__JwksUri = 'http://localhost:5088/.well-known/jwks.json'
 Invoke-RestMethod $env:Jwt__JwksUri
 ```
 
-O último comando deve retornar `keys` com a chave RSA pública. Ajuste a URL se Users estiver em outro endereço. Remova configurações `Jwt__PublicKeys__*` da sessão antes de usar JWKS. HTTP só é aceito em `Development`; fora dele, JWKS exige HTTPS. A URL não pode conter credenciais, query string ou fragmento. Redirecionamentos não são seguidos.
+O último comando deve retornar `keys` com a chave RSA pública. Ajuste a URL se Users estiver em outro endereço. Remova configurações `Jwt__PublicKeys__*` da sessão antes de usar JWKS; confira também se outras fontes de configuração não definem essas chaves. Abra uma sessão dedicada para evitar reutilizar variáveis de outro ambiente. Mantenha `DOTNET_ENVIRONMENT`, se definido, coerente com `ASPNETCORE_ENVIRONMENT`: em `WebApplication`, ele pode determinar o ambiente efetivo. HTTP só é aceito em `Development`; fora dele, JWKS exige HTTPS. A URL não pode conter credenciais, query string ou fragmento. Redirecionamentos não são seguidos.
 
 Alternativa PEM: deixe `Jwt__JwksUri` ausente/vazia, configure `Jwt__PublicKeys__0__Kid` com o `kid` do emissor e **exatamente uma** origem:
 
@@ -134,7 +136,6 @@ O PEM inline exige quebras de linha reais. Para outras chaves, use índices `1`,
 
 No JWKS, a atualização ocorre em segundo plano; a validação do token permanece local. Em falhas, apenas o cache ainda válido é utilizado. `kid` desconhecido pode disparar atualização, mas não torna o token imediatamente válido: repita após o cache atualizar.
 
-
 ## 6. Execução com Docker
 
 ### Container avulso
@@ -144,6 +145,7 @@ O Dockerfile publica a API e escuta em `8080`, como usuário não root. Ele não
 Exemplo usando JWKS do Users publicado no host. A porta externa `5080` é escolhida explicitamente neste exemplo; não é uma porta padrão do projeto:
 
 ```powershell
+$env:ASPNETCORE_ENVIRONMENT = 'Development'
 $env:Jwt__JwksUri = 'http://host.docker.internal:5088/.well-known/jwks.json'
 # Ajuste também ConnectionStrings__CatalogDatabase e RabbitMq__Host para o container.
 # Banco existente; aplica o schema antes do HTTP, somente em Development:
@@ -179,7 +181,7 @@ git clone https://github.com/FCG-FIAP-Cloud-Games/FCG-FIAP-Repo-Infra.git
 Set-Location ./FCG-FIAP-Repo-Infra/docker-compose
 ```
 
-Antes de iniciar, configure o ambiente dessa infraestrutura conforme seu README: `POSTGRES_ADMIN_PASSWORD`; `USERS_DB_NAME/USER/PASSWORD`, `CATALOG_DB_NAME/USER/PASSWORD`, `PAYMENTS_DB_NAME/USER/PASSWORD`, `NOTIFICATIONS_DB_NAME/USER/PASSWORD`; `RABBITMQ_USER/PASSWORD`; `USERS_IMAGE`, `CATALOG_IMAGE`, `PAYMENTS_IMAGE` e `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, obrigatórias para Notifications nessa composição. São variáveis de interpolação do Compose, distintas das opções .NET. Use segredos próprios, sem versioná-los. O bootstrap Users exige o banco de demonstração `fcg_users_demo`. Não reutilize volumes de outra composição inadvertidamente: ambas as cópias consultadas usam o nome `fcg-demo`.
+Antes de iniciar, configure o ambiente dessa infraestrutura conforme seu README: `POSTGRES_ADMIN_PASSWORD`; para cada prefixo `USERS`, `CATALOG`, `PAYMENTS` e `NOTIFICATIONS`, defina as três variáveis `<PREFIXO>_DB_NAME`, `<PREFIXO>_DB_USER` e `<PREFIXO>_DB_PASSWORD` (por exemplo, `CATALOG_DB_NAME`, `CATALOG_DB_USER`, `CATALOG_DB_PASSWORD`); `RABBITMQ_USER` e `RABBITMQ_PASSWORD`; `USERS_IMAGE`, `CATALOG_IMAGE`, `PAYMENTS_IMAGE` e `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, obrigatórias para Notifications nessa composição. São variáveis de interpolação do Compose, distintas das opções .NET. Use segredos próprios, sem versioná-los. O bootstrap Users exige o banco de demonstração `fcg_users_demo`. Não reutilize volumes de outra composição inadvertidamente: ambas as cópias consultadas usam o nome `fcg-demo`.
 
 Com os requisitos da infraestrutura preparados, nessa pasta:
 
@@ -208,7 +210,7 @@ PostgreSQL (`5432`) e AMQP (`5672`) ficam internos nas composições consultadas
 
 ## 7. Execução local com .NET 8
 
-Na raiz do Catalog, configure a seção 5 e aplique as migrations da seção 8 antes de executar. Alternativamente, com o banco já criado, use a flag de demonstração para aplicar migrations automaticamente.
+Na raiz do Catalog, configure a seção 5. O comando abaixo usa migrations automáticas e exige um banco já criado. Se optar pelo procedimento manual da seção 8, aplique as migrations antes e use `DemonstracaoLocal__Habilitada=false` ao executar a API.
 
 ```powershell
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
@@ -230,7 +232,11 @@ Os checks devem retornar 200; a listagem deve retornar `itens`, `pagina` e `tama
 
 O CatalogAPI usa banco próprio para catálogo, pedidos, aquisições, Outbox e Inbox. Configure `ConnectionStrings__CatalogDatabase` antes dos comandos EF. O usuário precisa de permissão para alterar o schema; se o banco ainda não existir, precisa também de `CREATEDB`, ou o banco deve ser criado previamente.
 
+Na raiz do Catalog, o procedimento manual é:
+
 ```powershell
+# Evita misturar o bootstrap da demonstração com o processo manual do EF.
+$env:DemonstracaoLocal__Habilitada = 'false'
 dotnet tool restore
 
 # Listar migrations
@@ -256,9 +262,35 @@ Após `database update`, `migrations list` não deve indicar migrations pendente
 
 O Swagger do Catalog existe somente em `Development`: [host/container avulso](http://localhost:5080/swagger/index.html) ou [Compose integrado](http://localhost:5081/swagger/index.html). O documento OpenAPI está em `/swagger/v1/swagger.json`.
 
+### Iniciar a UsersAPI
+
+Se a composição integrada da seção 6 já está ativa, ela já inicia Users; siga para o login abaixo. Para executar **somente Users e suas dependências**, use o [Compose oficial da UsersAPI](https://github.com/FCG-FIAP-Cloud-Games/FCG.UsersAPI/blob/main/compose.yaml). Na pasta pai dos projetos:
+
+```powershell
+# Pule o clone se já tiver a pasta; entre no clone existente.
+git clone https://github.com/FCG-FIAP-Cloud-Games/FCG.UsersAPI.git
+Set-Location ./FCG.UsersAPI
+docker compose config --quiet
+# Prossiga somente se a validação terminar sem erro.
+docker compose up --build -d
+docker compose ps -a
+docker compose logs --tail 100 usersapi
+```
+
+Esse Compose usa o projeto `fcg-users-demo`, provisiona seu PostgreSQL e RabbitMQ e executa o bootstrap Users: prepara chaves RSA persistentes, aplica migrations e cria o primeiro administrador se ainda não existir. O Dockerfile contém o SDK necessário; esse caminho não exige SDK .NET instalado no host. Aguarde o container Users saudável. Em qualquer pasta:
+
+```powershell
+Invoke-WebRequest http://localhost:5088/health -UseBasicParsing
+Invoke-RestMethod http://localhost:5088/.well-known/jwks.json
+```
+
+Espere 200 e um objeto `keys` no JWKS. O Swagger fica em `http://localhost:5088/swagger/index.html`. Não inicie esse Compose nas mesmas portas de outro ambiente: Users usa `5088` e o gerenciamento RabbitMQ usa `15672`, salvo overrides. As chaves desse ambiente são próprias; aponte o Catalog para seu JWKS, não para uma chave PEM de outra instância.
+
+Essa alternativa não inicia Catalog nem Payments e não disponibiliza as portas de PostgreSQL/AMQP ao host. Para a compra completa, use a composição integrada ou dependências provisionadas para o Catalog. Ao voltar aos comandos .NET do Catalog, retorne à sua raiz: `Set-Location ../FCG.CatalogAPI`, se os clones forem irmãos.
+
 ### Como autenticar na CatalogAPI utilizando a UsersAPI
 
-1. Inicie a UsersAPI com banco e chaves preparados. Na composição integrada, abra [Swagger da UsersAPI](http://localhost:5088/swagger/index.html). Se a porta foi sobrescrita, ajuste a URL. Users exige `Development` **e** `Swagger__Enabled=true`; Catalog exige somente `Development`.
+1. Com Users iniciado por um dos procedimentos acima, prossiga. Na composição integrada, abra [Swagger da UsersAPI](http://localhost:5088/swagger/index.html). Se a porta foi sobrescrita, ajuste a URL. Users exige `Development` **e** `Swagger__Enabled=true`; Catalog exige somente `Development`.
 2. Expanda **POST /api/v1/usuarios**, clique em **Try it out**, preencha o JSON e clique em **Execute**. Exemplo completo com dados fictícios (troque CPF/e-mail por dados de teste válidos e ainda não cadastrados; substitua a senha):
 
 ```json
@@ -427,7 +459,7 @@ A resposta contém `gameId`, `title` e `acquiredAt`, ou uma lista vazia. Não h�
 ```
 
 6. **Consultar status:** execute `GET /api/v1/pedidos/{id}` com **orderId**, não com o ID do jogo. O corpo possui `orderId`, `gameId`, `price`, `currency`, `status`, `createdAt` e `updatedAt`. Inicialmente o status é `PendingPayment`; se o processamento já terminou, pode aparecer `Paid` ou `Rejected`.
-7. **Verificar pagamento:** aguarde e repita o GET. `Paid` comprova que Catalog consumiu uma aprovação e confirmou a transação; `Rejected` indica rejeição sem concessão. Catalog não tem endpoint para aprovar pagamento. A conclusão depende de Payments consumindo `OrderPlacedEvent` e publicando `PaymentProcessedEvent`, RabbitMQ acessível e consumer Catalog habilitado. O preço do exemplo não garante aprovação em todos os ambientes: a regra pertence ao Payments. Não foi necessário presumir um endpoint HTTP desse serviço.
+7. **Verificar pagamento:** aguarde e repita o GET. `Paid` comprova que Catalog consumiu uma aprovação e confirmou a transação; `Rejected` indica rejeição sem concessão. Catalog não tem endpoint para aprovar pagamento. A conclusão depende de Payments consumindo `OrderPlacedEvent` e publicando `PaymentProcessedEvent`, RabbitMQ acessível e consumer Catalog habilitado. O preço do exemplo não garante aprovação em todos os ambientes: a regra pertence ao Payments. A confirmação é assíncrona; não há chamada HTTP ao Payments nesse roteiro.
 8. **Consultar biblioteca:** com o mesmo token do comprador, execute `GET /api/v1/biblioteca`. Após `Paid`, espere um item com `gameId` igual ao jogo comprado, `title` e `acquiredAt`. Antes da aprovação ou após rejeição, essa compra não concede o jogo. Consultar com o token administrativo mostraria a biblioteca do administrador.
 
 ### Repetir chamadas no PowerShell
@@ -471,7 +503,7 @@ Comprador → Catalog → pedido PendingPayment + Outbox (mesma transação)
 CatalogAPI → Outbox → OrderPlacedEvent → RabbitMQ
 ```
 
-Configure a conexão pelas variáveis `RabbitMq__*`. O publicador declara o exchange configurado como `fanout`, durável e sem exclusão automática. O usuário do broker precisa de acesso ao virtual host e permissão para declarar o exchange e publicar.
+Configure a conexão pelas variáveis `RabbitMq__*`. O publicador declara o exchange configurado como `fanout`, durável e sem exclusão automática. O usuário do broker precisa de acesso ao virtual host e permissão para declarar exchanges/filas, criar bindings, publicar e consumir. O host é um nome DNS/IP, sem o prefixo `rabbitmq://` (o formato de configuração do Payments é diferente).
 
 Para `OrderPlacedEvent`, provisione a fila do destinatário e seu binding ao exchange para receber os eventos. Sem rota disponível ou com falha no broker, as mensagens continuam pendentes para novas tentativas.
 
@@ -495,13 +527,19 @@ O processamento abre uma transação e adquire o mesmo advisory transaction lock
 
 O ACK de sucesso ocorre após commit. Falhas permanentes são transferidas diretamente para `catalog-payment-processed-error`. Falhas de infraestrutura têm três tentativas totais, com esperas assíncronas de 200 e 400 ms. O header `x-catalog-payment-attempt` começa em 1 quando ausente e é incrementado na republicação persistente para a própria fila. `x-catalog-payment-error` registra apenas o código/tipo técnico.
 
-Retry e fila de erro preservam os bytes originais, MessageId, CorrelationId, ContentType e headers, sem gerar EventId. O consumer confirma a publicação com `mandatory` e publisher confirms antes de ACK da entrega transferida. Se a transferência falhar, a entrega fica sem ACK e a conexão é recriada. Quedas entre publicação e ACK podem duplicar entregas; a Inbox protege os efeitos de negócio. Indisponibilidade do próprio broker mantém a entrega pendente até reconexão.
+Retry e fila de erro preservam os bytes originais, MessageId, CorrelationId, ContentType e os headers recebidos, atualizando os headers de tentativa/erro e adicionando os de correlação quando o evento foi lido, sem gerar EventId. O consumer confirma a publicação com `mandatory` e publisher confirms antes de ACK da entrega transferida. Se a transferência falhar, a entrega fica sem ACK e a conexão é recriada. Quedas entre publicação e ACK podem duplicar entregas; a Inbox protege os efeitos de negócio. Indisponibilidade do próprio broker mantém a entrega pendente até reconexão.
 
 Logs incluem EventId, CorrelationId, PaymentId, OrderId, Status, tentativa e resultado, sem payload completo ou credenciais.
 
 ## 13. Testes automatizados
 
-Execute na raiz do Catalog, com SDK .NET 8. Sucesso exige ausência de falhas; confira também quantos testes foram ignorados, pois isso limita a cobertura realizada.
+Execute na raiz do Catalog, com SDK .NET 8. Sucesso exige ausência de falhas; confira também quantos testes foram ignorados, pois isso limita a cobertura realizada. Para executar sem acessar serviços externos, em uma sessão PowerShell dedicada, remova as variáveis que habilitam essas integrações:
+
+```powershell
+Remove-Item Env:ConnectionStrings__CatalogDatabase, Env:CATALOG_TEST_CONNECTION, Env:RABBITMQ_TEST_CONNECTION, Env:PAYMENTS_TEST_PUBLISHER -ErrorAction SilentlyContinue
+```
+
+Depois execute:
 
 ```powershell
 dotnet test
@@ -520,30 +558,81 @@ Alguns testes usam PostgreSQL e RabbitMQ reais. `CATALOG_TEST_CONNECTION` e `RAB
 
 Após configurar essas variáveis, execute `dotnet test`. Sem as variáveis necessárias, os respectivos testes externos são ignorados.
 
-Os testes de pagamento criam bancos e filas exclusivos, verificam rollback, redelivery, ACK, retry, fila de erro e concorrência com o POST. Para exercitar também o publisher real do Payments, sem editar seus fontes nem adicionar MassTransit ao Catalog:
+Os testes de pagamento criam e removem bancos/filas de teste e verificam rollback, redelivery, ACK, retry, fila de erro e concorrência com o POST. Não aponte suas variáveis para o broker/banco de demonstração em uso.
+
+### Interoperabilidade com o publisher Payments: pendência confirmada
+
+O script `tests/Invoke-PaymentsInterop.ps1` monta um executável temporário com MassTransit 8.3.6 e fontes do Payments. Entretanto, o publisher da cópia atual de Payments usa `PaymentProcessedIntegrationEvent`, e o projeto temporário gerado pelo script não inclui o arquivo desse tipo. Portanto, o comando abaixo é uma referência para uso **após compatibilizar o script com a revisão do Payments**, não uma etapa funcional garantida nesta revisão:
 
 ```powershell
 ./tests/Invoke-PaymentsInterop.ps1 -PaymentsRepository '../FCG.PaymentsAPI'
 ```
 
-O script compila o contrato e publisher existentes em um executável temporário com MassTransit 8.3.6 e publica no exchange oficial do vhost de testes. O teste captura e valida o envelope real, o commit e o ACK. Esse teste isola o publisher; não executa o fluxo HTTP/banco/Outbox completo do Payments. Alternativamente, `PAYMENTS_TEST_PUBLISHER` pode apontar para esse executável DLL para incluir a interoperabilidade em `dotnet test`.
+O script exige `CATALOG_TEST_CONNECTION` e `RABBITMQ_TEST_CONNECTION`, verifica a versão de MassTransit e não foi executado nesta auditoria. A correção de código está fora do escopo deste README. Um executável compatível pode ser informado por `PAYMENTS_TEST_PUBLISHER`; o teste correspondente verifica o publisher, envelope, commit e ACK, não o fluxo HTTP/banco/Outbox completo do Payments.
 
 ## 14. Execução no Kubernetes
 
-A infraestrutura possui `k8s/kustomization.yaml` e namespace `fcg-demo`. Porém, nesta cópia consultada, `k8s/catalog-api/catalog-api-deployment.yml` e `k8s/users-api/users-api-deployment.yml` estão **vazios (0 bytes)**. Assim, não há Deployment/Service/portas/probes do Catalog e Users verificáveis para orientar uma implantação reproduzível. O ConfigMap compartilhado contém issuer/audience e configurações de assinatura do Users, mas isso não comprova a configuração de validação JWT/JWKS de um pod Catalog.
+Os manifests consultados em `FCG-FIAP-Repo-Infra/k8s` definem o namespace `fcg-demo`, os Deployments `usersapi` e `catalogapi` e Services `ClusterIP` de mesmo nome, ambos na porta `8080`. A configuração Kubernetes difere do Compose:
 
-Na raiz do repositório Infra, os comandos abaixo são apenas inspeção de um cluster já existente:
+| Configuração | Kubernetes consultado |
+| --- | --- |
+| Imagens declaradas | Users `fgcprojetofiap/users-api:1.5`; Catalog `fgcprojetofiap/catalog-api:1.0.4`. |
+| JWT Catalog | `Jwt__JwksUri=http://usersapi:8080/.well-known/jwks.json`; sem volume PEM no Catalog. |
+| Ambiente e emissor | `fcg-config`: Development, issuer `FIAP.CloudGames`, audience `FIAP.CloudGames.Api`. |
+| Banco Catalog | `postgres:5432`, nome/usuário de `fcg-config` e senha de `fcg-secrets`. |
+| Migrations | `DemonstracaoLocal__Habilitada=true` herdada de `fcg-config`; banco precisa existir antes do startup. |
+| RabbitMQ | Host `rabbitmq`, porta `5672`, vhost `/`; credenciais de `fcg-secrets`. |
+| Probes Catalog | Startup/readiness em `/health`; liveness em `/health/live`. Startup admite aproximadamente 300 segundos. |
+
+As tags acima são as declaradas no YAML, não uma comprovação da imagem atualmente executada ou de sua disponibilidade. O README específico de Catalog na infraestrutura ainda cita `1.0.3`; para esta documentação foi considerado o Deployment, que declara `1.0.4`.
+
+### Preparar e aplicar
+
+Na raiz do repositório Infra, com kubectl e acesso ao cluster:
 
 ```powershell
 kubectl config current-context
-kubectl get deployments,pods,services -n fcg-demo
+kubectl cluster-info
+kubectl get nodes
 ```
 
-Confirme o contexto antes de qualquer alteração. Não há comando de `apply`, rollout ou port-forward do Catalog validável com esses arquivos vazios. O responsável pela infraestrutura precisa completar/confirmar manifests, nomes dos recursos, imagens, Secrets, ConfigMaps, Services, probes e estratégia de migrations. Depois, poderá definir o acesso via Service/Ingress ou port-forward com as portas realmente declaradas.
+Antes da implantação, prepare os Secrets e a configuração da infraestrutura com valores próprios conforme o [README da infraestrutura](https://github.com/FCG-FIAP-Cloud-Games/FCG-FIAP-Repo-Infra). O template `k8s/key-vault/secrets.yml` contém placeholders de senhas; não é configuração pronta para uso. Confirme provisionamento dos bancos, armazenamento persistente e configuração dos demais serviços incluídos em `kustomization.yaml`. Não sobrescreva Secrets de um ambiente existente com o template.
 
-Em Kubernetes, hostnames e volumes do Compose não são automaticamente reutilizados. Para JWKS, use URL do Users acessível ao pod, sem PEM simultâneo; fora de Development, HTTPS é obrigatório. Para PEM, monte apenas a chave pública e use caminho absoluto legível. Produção exige migrations controladas separadamente: a flag de demonstração é recusada fora de Development. `/health` é apropriado para prontidão JWKS e `/health/live` exclui esse check; ambos deixam de verificar banco/broker. Swagger do Catalog não é habilitado fora de Development.
+Com a configuração revisada e preparada para o ambiente escolhido, na mesma raiz:
 
-A antiga afirmação de uma imagem Kubernetes específica publicada em determinada data não foi mantida como instrução operacional: os manifests disponíveis não sustentam essa garantia.
+```powershell
+kubectl apply -k ./k8s
+kubectl get deployments,pods,services -n fcg-demo
+kubectl rollout status deployment/usersapi -n fcg-demo --timeout=300s
+kubectl rollout status deployment/catalogapi -n fcg-demo --timeout=300s
+kubectl logs deployment/catalogapi -n fcg-demo --tail=100
+```
+
+`apply -k` implanta toda a composição, não apenas Catalog. Espere rollouts concluídos, pods prontos e ausência de erros de migrations/JWKS. Um timeout exige consultar logs e eventos; não garante que a inicialização falhou definitivamente. Esses comandos são instruções de implantação e não foram executados durante esta auditoria.
+
+### Acessar Swagger e verificar
+
+Para um cluster já preparado, execute cada port-forward em um terminal separado e mantenha-os abertos (as portas locais são escolhidas aqui, e precisam estar livres):
+
+```powershell
+kubectl port-forward service/usersapi 5088:8080 -n fcg-demo
+```
+
+```powershell
+kubectl port-forward service/catalogapi 5081:8080 -n fcg-demo
+```
+
+Em um terceiro terminal:
+
+```powershell
+Invoke-WebRequest http://localhost:5081/health/live -UseBasicParsing
+Invoke-WebRequest http://localhost:5081/health -UseBasicParsing
+Invoke-RestMethod http://localhost:5088/.well-known/jwks.json
+```
+
+Espere 200 e chaves públicas válidas. Abra [Swagger Users](http://localhost:5088/swagger/index.html) e [Swagger Catalog](http://localhost:5081/swagger/index.html), seguindo a seção 9. `Ctrl+C` encerra cada port-forward, sem remover os recursos do cluster.
+
+O DNS `usersapi` da URL JWKS é resolvido dentro do namespace; o port-forward serve ao cliente no host e não altera essa comunicação. `/health` depende do cache JWKS; `/health/live` não depende dele. Nenhum verifica banco ou RabbitMQ. Fora de Development, JWKS exige HTTPS, a flag de demonstração é recusada e Swagger Catalog fica desabilitado; produção requer uma configuração própria e migrations controladas separadamente.
 
 ## 15. Troubleshooting
 
@@ -572,4 +661,6 @@ Na pasta do Compose utilizado, `docker compose ps -a` e `docker compose logs --t
 
 ### Limites da validação e pendências
 
-As instruções foram confrontadas com código e configurações locais, incluindo contratos da UsersAPI e as duas composições identificadas. Não foi validado um fluxo em execução, a disponibilidade das imagens/remotos nem o estado real de um cluster. A consulta ao endereço GitHub oficial da UsersAPI não retornou conteúdo nesta revisão; seus contratos foram conferidos na cópia local disponível. Permanecem pendentes os manifests Kubernetes vazios e a confirmação de quais revisões/imagens estão implantadas. Credenciais administrativas devem ser obtidas com o responsável pelo ambiente.
+As instruções foram confrontadas com o código local, Dockerfile, contratos, testes e configurações das duas composições e do Kubernetes. Os repositórios oficiais foram confirmados pelo GitHub; o Compose e o contrato de resposta do login Users também foram consultados no remoto.
+
+Não foi executado um teste funcional de login/compra, build, suíte de testes ou implantação nesta auditoria. A consulta ao Docker ativo encontrou restrição de acesso e sua aprovação automática não pôde ser concluída; não houve comprovação de conectividade dos serviços em execução. Permanecem pendentes a correção do script de interoperabilidade Payments descrita na seção 13, a confirmação das imagens efetivamente implantadas e a validação do fluxo completo em ambiente preparado. Credenciais administrativas devem ser obtidas com o responsável pelo ambiente; nenhum token ou senha real faz parte dos exemplos.
